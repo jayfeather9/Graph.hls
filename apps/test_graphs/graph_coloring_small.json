@@ -1,0 +1,10 @@
+{
+  "nodes": [
+    {"id": 0, "properties": {"color": 0, "priority": 0}},
+    {"id": 1, "properties": {"color": 1, "priority": 1}}
+  ],
+  "edges": [
+    {"src": 0, "dst": 1, "properties": {}},
+    {"src": 1, "dst": 0, "properties": {}}
+  ]
+}

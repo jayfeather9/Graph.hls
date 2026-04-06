@@ -1,0 +1,28 @@
+#ifndef __HOST_CONFIG_H__
+#define __HOST_CONFIG_H__
+
+#include <stdint.h>
+
+#define BIG_KERNEL_NUM 4
+#define LITTLE_KERNEL_NUM 4
+
+#define NUM_KERNEL (BIG_KERNEL_NUM + LITTLE_KERNEL_NUM)
+
+#define USE_DDR 1
+
+#define LITTLE_KERNEL_MEM_EDGE_ID {0, 0, 0, 0}
+#define LITTLE_KERNEL_MEM_NODE_ID {0, 0, 0, 0}
+#define BIG_KERNEL_MEM_EDGE_ID {0, 0}
+#define BIG_KERNEL_MEM_NODE_ID {0, 0}
+
+#define LITTLE_KERNEL_HBM_EDGE_ID {0,0,3,3}
+#define LITTLE_KERNEL_HBM_NODE_ID {0,0,3,3}
+#define BIG_KERNEL_HBM_EDGE_ID {8, 10}
+#define BIG_KERNEL_HBM_NODE_ID {9, 11}
+
+#define LITTLE_KERNEL_DDR_EDGE_ID {0,0,3,3}
+#define LITTLE_KERNEL_DDR_NODE_ID {0,0,3,3}
+#define BIG_KERNEL_DDR_EDGE_ID {2,1,1,2}
+#define BIG_KERNEL_DDR_NODE_ID {2,1,1,2}
+
+#endif /* __HOST_CONFIG_H__ */

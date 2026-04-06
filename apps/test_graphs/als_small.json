@@ -1,0 +1,10 @@
+{
+  "nodes": [
+    {"id": 0, "properties": {"vec": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}},
+    {"id": 1, "properties": {"vec": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}}
+  ],
+  "edges": [
+    {"src": 0, "dst": 1, "properties": {"rating": 0.0}},
+    {"src": 1, "dst": 0, "properties": {"rating": 0.0}}
+  ]
+}

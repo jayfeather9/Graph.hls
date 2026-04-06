@@ -1,0 +1,15 @@
+{
+  "nodes": [
+    {"id": 0, "properties": {"rank": 1.0, "out_deg": 2}},
+    {"id": 1, "properties": {"rank": 1.0, "out_deg": 2}},
+    {"id": 2, "properties": {"rank": 1.0, "out_deg": 2}}
+  ],
+  "edges": [
+    {"src": 0, "dst": 1, "properties": {}},
+    {"src": 0, "dst": 2, "properties": {}},
+    {"src": 1, "dst": 0, "properties": {}},
+    {"src": 1, "dst": 2, "properties": {}},
+    {"src": 2, "dst": 0, "properties": {}},
+    {"src": 2, "dst": 1, "properties": {}}
+  ]
+}

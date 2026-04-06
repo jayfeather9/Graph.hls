@@ -1,0 +1,12 @@
+{
+  "nodes": [
+    {"id": 0, "properties": {"label": 0}},
+    {"id": 1, "properties": {"label": 1}},
+    {"id": 2, "properties": {"label": 2}}
+  ],
+  "edges": [
+    {"src": 0, "dst": 1, "properties": {}},
+    {"src": 1, "dst": 2, "properties": {}},
+    {"src": 0, "dst": 2, "properties": {}}
+  ]
+}

@@ -1,0 +1,4 @@
+error_type	hwemu_total_min	hwemu_iterations	sgscope_paper_sec	description
+algorithm_failure	360	6	0.04	Algorithm bug (inverted comparison in apply). hw_emu compiles but host verification fails. ~6 hours across 6 debug iterations.
+stream_type_mismatch	73.67	1	0.02	Stream type mismatch (wrong packet type). Compilation fails at link step. 73m 40s.
+parameter_mismatch	13.22	1	0.02	Parameter type mismatch (scalar vs stream). Compilation fails at HLS synthesis. 13m 13s.

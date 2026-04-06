@@ -1,0 +1,14 @@
+{
+  "nodes": [
+    {"id": 0, "properties": {"dist": 0}},
+    {"id": 1, "properties": {"dist": 1000000}},
+    {"id": 2, "properties": {"dist": 1000000}}
+  ],
+  "edges": [
+    {"src": 0, "dst": 0, "properties": {"weight": 0}},
+    {"src": 0, "dst": 1, "properties": {"weight": 2}},
+    {"src": 0, "dst": 2, "properties": {"weight": 5}},
+    {"src": 1, "dst": 2, "properties": {"weight": 1}},
+    {"src": 2, "dst": 1, "properties": {"weight": 1}}
+  ]
+}

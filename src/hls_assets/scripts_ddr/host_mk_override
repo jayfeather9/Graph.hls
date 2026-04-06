@@ -1,0 +1,70 @@
+
+# Compiler
+CXX := g++
+
+# --- Configuration ---
+
+# Executable name (can be passed from a top-level Makefile)
+EXECUTABLE ?= graphyflow_host
+
+# Top-level directory for host source code
+HOST_DIR := scripts/host
+
+# --- Automatic File Discovery ---
+
+# Use the shell's 'find' command to recursively find all .cpp files
+# This automatically includes files in subdirectories like 'acc_setup'.
+HOST_SRCS := $(shell find $(HOST_DIR) -name '*.cpp')
+
+# Generate a list of object files (.o) from the source files list
+# e.g., "scripts/host/host.cpp" becomes "scripts/host/host.o"
+OBJECTS := $(HOST_SRCS:.cpp=.o)
+
+
+# --- Compiler and Linker Flags ---
+
+# Include directories
+# We now add the top-level host directory. The compiler will handle subdirectories.
+CXXFLAGS := -I$(HOST_DIR)
+CXXFLAGS += -Iscripts/kernel
+CXXFLAGS += -I$(XILINX_XRT)/include
+CXXFLAGS += -I$(XILINX_VITIS)/include
+CXXFLAGS += -I$(XILINX_HLS)/include
+
+ifeq ($(TARGET),$(filter $(TARGET), sw_emu hw_emu))
+CXXFLAGS += -DEMULATION
+endif
+
+# Compiler flags
+CXXFLAGS += -std=c++17 -O3 -Wall -g # Added -g for easier debugging
+
+# Linker flags (no changes needed here)
+LDFLAGS := -L$(XILINX_XRT)/lib
+LDFLAGS += -lOpenCL -lxrt_coreutil -lstdc++ -lrt -pthread -Wl,--export-dynamic
+
+
+# --- Build Rules ---
+
+# The "all" rule is the default target. It depends on the final executable.
+all: $(EXECUTABLE)
+
+# Rule to link the final executable from all the object files.
+# This rule runs only if any of the object files (.o) have changed.
+$(EXECUTABLE): $(OBJECTS)
+	@echo "==> Linking executable: $@"
+	$(CXX) $(OBJECTS) -o $(EXECUTABLE) $(LDFLAGS)
+
+# Pattern rule to compile any .cpp file into its corresponding .o file.
+# This rule runs for each .cpp file that has been modified.
+%.o: %.cpp
+	@echo "==> Compiling: $<"
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
+
+# Rule to clean up the build artifacts.
+# Call with "make clean".
+clean:
+	@echo "==> Cleaning up generated files"
+	rm -f $(EXECUTABLE) $(OBJECTS)
+
+# Phony targets are not files. 'all' and 'clean' are actions.
+.PHONY: all clean

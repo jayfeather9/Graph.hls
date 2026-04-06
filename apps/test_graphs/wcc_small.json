@@ -1,0 +1,16 @@
+{
+  "nodes": [
+    { "id": 0, "properties": { "label": 1 } },
+    { "id": 1, "properties": { "label": 0 } },
+    { "id": 2, "properties": { "label": 0 } },
+    { "id": 3, "properties": { "label": 0 } },
+    { "id": 4, "properties": { "label": 0 } }
+  ],
+  "edges": [
+    { "src": 0, "dst": 0, "properties": {} },
+    { "src": 0, "dst": 1, "properties": {} },
+    { "src": 1, "dst": 2, "properties": {} },
+    { "src": 2, "dst": 3, "properties": {} },
+    { "src": 3, "dst": 4, "properties": {} }
+  ]
+}

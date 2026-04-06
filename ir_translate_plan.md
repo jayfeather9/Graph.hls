@@ -1,0 +1,38 @@
+**Plan: Lower OperationGraph to GAS (Scatter–Gather–Apply)**
+- **Define required IR info**: Identify from `OperationGraph` the iteration input (must be `IterationInput` over edges or nodes), the data dependencies per op (inputs, lambda body reads), and the final `result` binding (node property target).
+- **Establish GAS role constraints**  
+  - Scatter: reads edge record plus src node props; may not read dst props or Gather output. Emits per-edge payload keyed by dst.  
+  - Gather: reduces all incoming Scatter payloads for a dst; may not read graph props (only Scatter payloads).  
+  - Apply: per node (or per dst) reads Gather output and node props; writes result node prop.
+- **Classify operations**  
+  - Identify the linear op chain leading to `result.value`. Trace dependencies from `result.value` back through `OperationNode`s in topological order.  
+  - Map op shapes:  
+    - `IterationInput(G.EDGES)`: candidate scatter seed (edge stream).  
+    - `Map`/`Filter` over edge stream: candidate Scatter if lambda reads only edge fields and src props.  
+    - `Reduce` grouped by dst_ids: candidate Gather if inputs are Scatter outputs and lambda reads only those payloads.  
+    - Remaining `Map`/`Filter` over nodes with Gather output and node props: candidate Apply.
+- **Access analysis**  
+  - Walk each lambda’s `IrExpr` to collect used identifiers and member accesses; classify as edge fields, src props, dst props, node props, or intermediate bindings.  
+  - Enforce constraints: Scatter forbids dst prop reads; Gather forbids any prop reads; Apply must not read edge fields. Flag untranslatable programs.
+- **Shape recognition for GAS**  
+  - Require a pipeline: `edges -> Scatter(map/filter) -> Gather(reduce by dst) -> Apply(map/filter/reduce over nodes/dsts) -> return`.  
+  - Allow fusion of multiple `Map/Filter` steps inside a phase if constraints hold.  
+  - Only one Gather reduce per iteration; if multiple reduces or branching, reject as not GAS-formable.
+- **Phase construction**  
+  - **Scatter phase**: take the maximal prefix of edge-based ops whose lambdas obey Scatter access rules; the final payload becomes Gather input.  
+  - **Gather phase**: the first reduce keyed by dst ids using only Scatter payloads; its output becomes per-dst aggregate.  
+  - **Apply phase**: remaining ops producing `result.value`, using Gather output plus node props; finalize write to `result.property`.
+- **Validation steps**  
+  - Ensure key alignment: the reduce key must correspond to dst ids; verify dataflow connects edge stream to dst grouping.  
+  - Confirm no cross-phase leaks (e.g., Apply reading edge props).  
+  - Confirm single return and consistent binding of `result.value`.
+- **Output representation**  
+  - Produce a GAS meta-plan:  
+    - Scatter: payload expr per edge.  
+    - Gather: reduction op and identity over dst.  
+    - Apply: per-node/dst update expr writing `result.property`.  
+  - If constraints fail, emit a clear “cannot lower to GAS” reason (e.g., lambda reads dst prop in Scatter).
+- **Testing strategy**  
+  - Run on test.dsl; expect: Scatter uses `e.src.dist` and `e.weight`; Gather reduces by dst to min; Apply writes `dist`.  
+  - Add property-access edge cases and rejection cases (e.g., Scatter reads dst prop).  
+  - Keep existing unit tests; add new ones for GAS lowerability checks and for failure diagnostics.
