@@ -69,18 +69,40 @@ cargo run -- --simulate-json apps/sssp.dsl /tmp/graph.json 32
 │   ├── ae_build.sh                 # Parallel HW builder
 │   ├── ae_check_builds.sh          # Build status checker + retry
 │   ├── ae_run.sh                   # FPGA experiment runner
-│   ├── ae_plot.py                  # Consolidated figure plotter
-│   ├── batch_simulate.sh           # Batch SG-Scope simulation
-│   ├── plot_sim_results.py         # Simulation result plotter
-│   ├── convert_regraph_csv.py      # ReGraph output converter
-│   └── convert_thundergp_csv.py    # ThunderGP output converter
+│   ├── ae_plot.py                  # Consolidated figure plotter (Fig 7-9)
+│   ├── batch_simulate.sh           # Batch SG-Scope simulation runner
+│   ├── plot_sim_results.py         # Simulation result plotter (Fig 10)
+│   ├── convert_regraph_csv.py      # ReGraph output → baseline CSV converter
+│   ├── convert_thundergp_csv.py    # ThunderGP output → baseline CSV converter
+│   ├── compile_hls_hw.sh           # HLS compilation orchestrator
+│   ├── run_target_one.sh           # Run one HLS project natively
+│   ├── run_hwemu_docker_one.sh     # Run one HLS project in Docker (hw_emu)
+│   ├── run_ddr_codegen_all.sh      # Run all DDR apps on all datasets
+│   ├── parallel_hw_emu.sh          # Parallel hw_emu with memory budgeting
+│   ├── hw_emu_matrix.sh            # Matrix hw_emu execution
+│   └── topology_sweep.py           # Topology design space exploration
 ├── data/
-│   ├── swemu_baseline.csv          # Pre-collected sw_emu timing (Fig 10)
+│   ├── swemu_baseline.csv          # Pre-collected C-Sim timing (Fig 10)
 │   ├── hwemu_debug_baseline.tsv    # Pre-collected hw_emu timing (Table 3)
 │   └── dataset_short_names.csv     # Dataset abbreviations for plots
-├── docs/                           # Documentation and predictor models
+├── docs/
+│   ├── dsl_writing_guide.md        # How to write DSL programs
+│   ├── batch_simulation_guide.md   # Batch simulation usage
+│   ├── simulator_speed_guide.md    # Simulator internals and speed
+│   ├── emit_hls.md                 # HLS emission guide
+│   ├── ddr_codegen_guide.md        # DDR code generation guide
+│   ├── hw_emu_docker.md            # Docker setup for hw_emu
+│   ├── scripts.md                  # Script reference
+│   ├── hls_templates_overview.md   # HLS template design
+│   ├── hls_template_status.md      # Template coverage status
+│   ├── grouping_static_model_*.json  # Predictor models (8-bit and 32-bit)
+│   └── ...
 ├── tests/                          # Integration tests
-└── Cargo.toml
+├── ARCHITECTURE.md                 # Compiler architecture overview
+├── language_definition.md          # DSL formal specification
+├── algorithm_defines.md            # Supported algorithms
+├── Cargo.toml
+└── Cargo.lock
 ```
 
 ## Artifact Evaluation
