@@ -15,7 +15,7 @@ Usage:
         --baseline-csv swemu_times.csv --baseline-cols sssp_iter0_ms,pr_iter0_ms,cc_iter0_ms \
         --baseline-unit ms --y-mode speedup --output speedup.pdf
 
-    # With short-name mapping
+    # With an explicit short-name mapping
     python plot_sim_results.py --sim-csv results.csv --dsls sssp,pagerank \
         --y-mode time --short-names short_names.csv --output sim_times.pdf
 
@@ -28,6 +28,7 @@ Arguments:
     --baseline-cols (speedup mode) Comma-separated column names in baseline CSV, one per DSL
     --baseline-unit (speedup mode) Unit of baseline values: "ms" or "s" (default: ms)
     --short-names   CSV with 'dataset' and 'simple_name' columns for x-axis labels
+                    (defaults to scripts/dataset_short_names.csv if present)
     --extra-short   Extra short name mappings as "key1:val1,key2:val2"
     --title         Plot title (optional)
     --y-label       Y-axis label override
@@ -43,6 +44,12 @@ import sys
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import pandas as pd
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_SHORT_NAMES_CSV = os.path.join(SCRIPT_DIR, "dataset_short_names.csv")
+DEFAULT_EXTRA_SHORT_NAMES = {
+    "wiki-topcats-categories": "TCC",
+}
 
 # ---- Visual constants (matching paper style) ----
 HATCH_PATTERNS = ["///", "\\\\\\", "|||", "---", "xxx", "ooo", "...", "+++"]
@@ -93,16 +100,24 @@ def normalize_dataset_name(name):
 
 def load_short_name_map(csv_path, extra_map):
     short_map = {}
-    if csv_path and os.path.exists(csv_path):
-        df = pd.read_csv(csv_path)
+    resolved_csv = csv_path
+    if not resolved_csv and os.path.exists(DEFAULT_SHORT_NAMES_CSV):
+        resolved_csv = DEFAULT_SHORT_NAMES_CSV
+
+    if resolved_csv and os.path.exists(resolved_csv):
+        df = pd.read_csv(resolved_csv)
         for _, row in df.iterrows():
             ds = normalize_dataset_name(str(row["dataset"]))
             short_map[ds] = str(row["simple_name"])
+
+    merged_extra = dict(DEFAULT_EXTRA_SHORT_NAMES)
     if extra_map:
         for pair in extra_map.split(","):
             if ":" in pair:
                 k, v = pair.split(":", 1)
-                short_map[k.strip()] = v.strip()
+                merged_extra[k.strip()] = v.strip()
+
+    short_map.update(merged_extra)
     return short_map
 
 
@@ -363,7 +378,10 @@ def main():
     parser.add_argument("--baseline-cols", help="Comma-separated baseline column names")
     parser.add_argument("--baseline-unit", choices=["ms", "s"], default="ms",
                         help="Baseline timing unit")
-    parser.add_argument("--short-names", help="CSV with 'dataset','simple_name' columns")
+    parser.add_argument(
+        "--short-names",
+        help="CSV with 'dataset','simple_name' columns (default: scripts/dataset_short_names.csv if present)",
+    )
     parser.add_argument("--extra-short", help="Extra short names as 'key1:val1,key2:val2'")
     parser.add_argument("--title", help="Plot title")
     parser.add_argument("--y-label", help="Y-axis label override")

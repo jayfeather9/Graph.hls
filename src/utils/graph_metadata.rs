@@ -10,15 +10,15 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 const RUNNER_CANDIDATES: &[&str] = &[
-    "run_all_benchmarks.py",
-    "run_all_benchmarks.py",
-    "run_all_benchmarks.py",
+    "/home/feiyang/more_variants_GraphyFlow/run_all_benchmarks.py",
+    "/data/feiyang/Different_B2L_GraphyFlow_Final/run_all_benchmarks.py",
+    "/data/feiyang/Different_B2L_GraphyFlow_Final/benchmark_package_20260203/run_all_benchmarks.py",
 ];
 
 const DATASET_ROOT_CANDIDATES: &[&str] = &[
-    "/path/to/datasets",
-    "/path/to/datasets",
-    "/path/to/datasets",
+    "/data/feiyang/test/test/datasets",
+    "/data/zhuohang/dataset/ReGraph_dataset/useable",
+    "/data/zhuohang/dataset/ReGraph_dataset/output",
 ];
 
 const METADATA_CACHE_VERSION: u32 = 2;
@@ -812,7 +812,11 @@ fn infer_vertex_count_from_edgelist(graph_path: &Path, is_one_based: bool) -> Op
             dst
         };
         let local_max = src.max(dst);
-        max_vertex = Some(max_vertex.map(|value| value.max(local_max)).unwrap_or(local_max));
+        max_vertex = Some(
+            max_vertex
+                .map(|value| value.max(local_max))
+                .unwrap_or(local_max),
+        );
     }
 
     max_vertex.map(|value| value + 1)

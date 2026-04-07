@@ -16,11 +16,13 @@ use crate::domain::{
         HlsEdgeConfig, HlsKernelConfig, HlsNodeConfig, HlsTemplateError,
         apply_kernel_multi_merger_unit, apply_kernel_unit, big_merger_group_unit, big_merger_unit,
         graphyflow_big_unit, graphyflow_little_unit, hbm_writer_multi_group_unit, hbm_writer_unit,
-        little_merger_group_unit, little_merger_unit, render_graphyflow_big_header,
-        render_graphyflow_little_header, shared_kernel_params_multi_merger_unit,
-        shared_kernel_params_unit,
+        little_kernel_uses_zero_reduce, little_merger_group_unit, little_merger_unit,
+        render_graphyflow_big_header, render_graphyflow_little_header,
+        shared_kernel_params_multi_merger_unit, shared_kernel_params_unit,
     },
-    host_template::{HostPreprocessSpec, render_graph_preprocess_cpp, render_graph_preprocess_no_l1_cpp},
+    host_template::{
+        HostPreprocessSpec, render_graph_preprocess_cpp, render_graph_preprocess_no_l1_cpp,
+    },
 };
 
 const AXI_BUS_WIDTH: u32 = 512;
@@ -97,8 +99,8 @@ impl HlsProjectConfig {
 
         // Validate: no_l1_preprocess is incompatible with multi-group topologies
         if no_l1_preprocess {
-            let has_multi_groups = topology.little_groups.len() > 1
-                || topology.big_groups.len() > 1;
+            let has_multi_groups =
+                topology.little_groups.len() > 1 || topology.big_groups.len() > 1;
             if has_multi_groups {
                 return Err(HlsProjectError::InvalidConfig(
                     "no_l1_preprocess is incompatible with multi-group topologies. \
@@ -336,10 +338,7 @@ pub fn generate_sssp_hls_project(
     Ok(dest_root.to_path_buf())
 }
 
-fn render_host_templates(
-    dest_root: &Path,
-    no_l1_preprocess: bool,
-) -> Result<(), HlsProjectError> {
+fn render_host_templates(dest_root: &Path, no_l1_preprocess: bool) -> Result<(), HlsProjectError> {
     let host_graph_preprocess_dir = dest_root
         .join("scripts")
         .join("host")
@@ -348,10 +347,7 @@ fn render_host_templates(
 
     let cpp_path = host_graph_preprocess_dir.join("graph_preprocess.cpp");
     if no_l1_preprocess {
-        fs::write(
-            &cpp_path,
-            render_graph_preprocess_no_l1_cpp(),
-        )?;
+        fs::write(&cpp_path, render_graph_preprocess_no_l1_cpp())?;
     } else {
         fs::write(
             &cpp_path,
@@ -828,7 +824,12 @@ fn render_kernel_templates(
                 let kernel_id = topology.big_groups.len() + gid;
                 write_unit(
                     &kernel_dir.join(format!("little_merger_{kernel_id}.cpp")),
-                    little_merger_group_unit(ops, group.pipelines, kernel_id, edge.zero_sentinel)?,
+                    little_merger_group_unit(
+                        ops,
+                        group.pipelines,
+                        kernel_id,
+                        edge.zero_sentinel || little_kernel_uses_zero_reduce(ops, edge),
+                    )?,
                 )?;
             }
         }
@@ -841,9 +842,13 @@ fn render_kernel_templates(
             &kernel_dir.join("big_merger.cpp"),
             big_merger_unit(ops, config, edge.zero_sentinel)?,
         )?;
+        // When the little kernel uses reference-style zero-based reduce
+        // (identity_val = 0), the merger must also use zero-sentinel logic
+        // to correctly skip 0-valued (empty) slots.
+        let little_effective_zs = edge.zero_sentinel || little_kernel_uses_zero_reduce(ops, edge);
         write_unit(
             &kernel_dir.join("little_merger.cpp"),
-            little_merger_unit(ops, config, edge.zero_sentinel)?,
+            little_merger_unit(ops, config, little_effective_zs)?,
         )?;
     }
     if multi_merger {
@@ -1960,7 +1965,7 @@ fn build_node_config(program: &Program) -> Result<HlsNodeConfig, HlsProjectError
         })?;
 
     let (node_prop_bits, node_prop_int_bits, node_prop_signed) = match &prop_def.ty {
-        crate::domain::ast::TypeExpr::Int { width } => (*width, *width, false),
+        crate::domain::ast::TypeExpr::Int { width } => (*width, *width, true),
         crate::domain::ast::TypeExpr::Fixed { width, int_width } => (*width, *int_width, true),
         crate::domain::ast::TypeExpr::Bool => (1, 1, false),
         crate::domain::ast::TypeExpr::Float => (32, 16, true),

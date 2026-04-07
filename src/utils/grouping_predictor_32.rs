@@ -14,9 +14,9 @@ use crate::utils::graph_metadata::{
 
 const STATIC_MODEL_VERSION: u32 = 1;
 const DATASET_ROOT_CANDIDATES: &[&str] = &[
-    "/path/to/datasets",
-    "/path/to/datasets",
-    "/path/to/datasets",
+    "/data/feiyang/test/test/datasets",
+    "/data/zhuohang/dataset/ReGraph_dataset/useable",
+    "/data/zhuohang/dataset/ReGraph_dataset/output",
 ];
 
 #[derive(Debug, Error)]
@@ -202,7 +202,8 @@ pub fn train_static_grouping32_model(
         .iter()
         .map(|shape| train_variant_model(shape, &rows, &scaled_rows))
         .collect();
-    let (blend_alpha, knn_neighbors) = tune_blend_parameters(&candidate_shapes, &variant_models, &rows, &scaled_rows);
+    let (blend_alpha, knn_neighbors) =
+        tune_blend_parameters(&candidate_shapes, &variant_models, &rows, &scaled_rows);
     let winner_exemplars = winner_exemplars_from_rows(&rows, &scaled_rows);
     let (feature_group_weights, label_knn_neighbors, label_distance_power) =
         tune_label_knn_parameters(&winner_exemplars);
@@ -288,8 +289,11 @@ pub fn evaluate_grouping32_model(
             .collect();
         let model = train_static_grouping32_model_from_rows(benchmark_path, &train_rows);
         let held = &rows[held_out];
-        let prediction =
-            predict_grouping32_from_model_for_metadata(&model, &held.metadata, Some(&held.dataset_key));
+        let prediction = predict_grouping32_from_model_for_metadata(
+            &model,
+            &held.metadata,
+            Some(&held.dataset_key),
+        );
         let Some((truth_shape, truth_score)) =
             best_variant_for_scores(&model.candidate_shapes, &held.scores_by_variant)
         else {
@@ -326,7 +330,9 @@ pub fn predict_grouping32_from_static_model_for_dataset(
     let metadata = extract_graph_metadata_from_dataset_path(dataset_path).ok_or_else(|| {
         Grouping32PredictorError::InvalidDatasetMetadata(dataset_path.display().to_string())
     })?;
-    Ok(predict_grouping32_from_model_for_metadata(&model, &metadata, None))
+    Ok(predict_grouping32_from_model_for_metadata(
+        &model, &metadata, None,
+    ))
 }
 
 fn train_static_grouping32_model_from_rows(
@@ -389,7 +395,9 @@ fn train_static_grouping32_model_from_rows(
     }
 }
 
-fn load_benchmark_rows(benchmark_path: &Path) -> Result<Vec<BenchmarkRow>, Grouping32PredictorError> {
+fn load_benchmark_rows(
+    benchmark_path: &Path,
+) -> Result<Vec<BenchmarkRow>, Grouping32PredictorError> {
     let body = fs::read_to_string(benchmark_path).map_err(|source| {
         Grouping32PredictorError::ReadFile {
             path: benchmark_path.to_path_buf(),
@@ -444,9 +452,8 @@ fn load_benchmark_rows(benchmark_path: &Path) -> Result<Vec<BenchmarkRow>, Group
         };
         let path = resolve_benchmark_dataset_path(&raw.dataset)
             .ok_or_else(|| Grouping32PredictorError::MissingDatasetPath(raw.dataset.clone()))?;
-        let metadata = extract_graph_metadata_from_dataset_path(&path).ok_or_else(|| {
-            Grouping32PredictorError::InvalidDatasetMetadata(raw.dataset.clone())
-        })?;
+        let metadata = extract_graph_metadata_from_dataset_path(&path)
+            .ok_or_else(|| Grouping32PredictorError::InvalidDatasetMetadata(raw.dataset.clone()))?;
         let scores_by_variant = raw.collapsed_scores();
         rows.push(BenchmarkRow {
             dataset_key: raw.dataset,
@@ -518,7 +525,10 @@ fn max_optional(lhs: Option<f64>, rhs: Option<f64>) -> Option<f64> {
 
 fn parse_score(value: &str) -> Option<f64> {
     let trimmed = value.trim();
-    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("error") || trimmed.eq_ignore_ascii_case("bus error") {
+    if trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("error")
+        || trimmed.eq_ignore_ascii_case("bus error")
+    {
         return None;
     }
     trimmed.parse::<f64>().ok()
@@ -668,8 +678,7 @@ fn tune_label_knn_parameters(exemplars: &[Grouping32WinnerExemplar]) -> (Vec<f64
 
     for &neighbors in &[1usize, 2, 3, 4, 5] {
         for &power in &distance_powers {
-            let (accuracy, regret) =
-                evaluate_label_knn(exemplars, &best_weights, neighbors, power);
+            let (accuracy, regret) = evaluate_label_knn(exemplars, &best_weights, neighbors, power);
             if accuracy > best_accuracy + 1e-12
                 || ((accuracy - best_accuracy).abs() <= 1e-12 && regret < best_regret)
             {
@@ -713,7 +722,11 @@ fn tune_label_knn_parameters(exemplars: &[Grouping32WinnerExemplar]) -> (Vec<f64
         }
     }
 
-    (expand_group_weights(&best_weights), best_neighbors, best_power)
+    (
+        expand_group_weights(&best_weights),
+        best_neighbors,
+        best_power,
+    )
 }
 
 fn expand_group_weights(group_weights: &[f64]) -> Vec<f64> {
@@ -973,7 +986,11 @@ fn rank_candidates_from_winner_exemplars(
 ) -> Vec<Grouping32CandidateScore> {
     let mut pairs: Vec<_> = exemplars
         .iter()
-        .filter(|item| exclude_dataset.map(|dataset| item.dataset != dataset).unwrap_or(true))
+        .filter(|item| {
+            exclude_dataset
+                .map(|dataset| item.dataset != dataset)
+                .unwrap_or(true)
+        })
         .map(|item| {
             (
                 weighted_distance(&item.features, scaled_features, feature_weights),
@@ -1016,10 +1033,16 @@ fn rank_candidates_from_winner_exemplars(
             big_groups: shape.big_groups.clone(),
             little_groups: shape.little_groups.clone(),
             score: throughput,
-            classifier_probability: if total_vote > 0.0 { vote / total_vote } else { 0.0 },
+            classifier_probability: if total_vote > 0.0 {
+                vote / total_vote
+            } else {
+                0.0
+            },
             regression_score: throughput,
             knn_score: Some(throughput),
-            seen_in_training: exemplars.iter().any(|item| item.best_variant == shape.variant),
+            seen_in_training: exemplars
+                .iter()
+                .any(|item| item.best_variant == shape.variant),
         });
     }
 
@@ -1056,8 +1079,17 @@ fn knn_log_score(
     let mut pairs: Vec<_> = model
         .exemplar_points
         .iter()
-        .filter(|point| exclude_dataset.map(|dataset| point.dataset != dataset).unwrap_or(true))
-        .map(|point| (squared_distance(&point.features, scaled_features), point.log_throughput))
+        .filter(|point| {
+            exclude_dataset
+                .map(|dataset| point.dataset != dataset)
+                .unwrap_or(true)
+        })
+        .map(|point| {
+            (
+                squared_distance(&point.features, scaled_features),
+                point.log_throughput,
+            )
+        })
         .collect();
     if pairs.is_empty() {
         return None;
@@ -1305,9 +1337,15 @@ fn train_classifier_tree(
     };
 
     let left_rows: Vec<_> = left_idx.iter().map(|idx| rows[*idx].clone()).collect();
-    let left_scaled: Vec<_> = left_idx.iter().map(|idx| scaled_rows[*idx].clone()).collect();
+    let left_scaled: Vec<_> = left_idx
+        .iter()
+        .map(|idx| scaled_rows[*idx].clone())
+        .collect();
     let right_rows: Vec<_> = right_idx.iter().map(|idx| rows[*idx].clone()).collect();
-    let right_scaled: Vec<_> = right_idx.iter().map(|idx| scaled_rows[*idx].clone()).collect();
+    let right_scaled: Vec<_> = right_idx
+        .iter()
+        .map(|idx| scaled_rows[*idx].clone())
+        .collect();
 
     Grouping32DecisionTree::Split {
         feature_idx,

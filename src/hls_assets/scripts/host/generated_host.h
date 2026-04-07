@@ -44,6 +44,7 @@ class AlgorithmHost {
 
     // Algorithm state
     int m_num_vertices;
+    int m_start_node = -1;
 
     // Host-side master distance vector using original (global) vertex IDs
     std::vector<distance_t> h_distances;

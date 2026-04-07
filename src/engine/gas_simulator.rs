@@ -226,7 +226,9 @@ pub fn simulate_gas_for_iters(
 ) -> Result<GraphState, GasSimError> {
     match simulate_gas_compiled_for_iters(program, graph, iters) {
         Ok(state) => Ok(state),
-        Err(GasSimError::UnsupportedOp(_)) => simulate_gas_interpreted_for_iters(program, graph, iters),
+        Err(GasSimError::UnsupportedOp(_)) => {
+            simulate_gas_interpreted_for_iters(program, graph, iters)
+        }
         Err(err) => Err(err),
     }
 }
@@ -340,10 +342,21 @@ fn execute_iteration_masked(
             props: edge.props.clone(),
         };
         let key_args = vec![edge_val.clone(); program.scatter.key_lambda.params.len()];
-        let key = eval_lambda(&program.scatter.key_lambda, &key_args, &env, state, int_mask)?;
+        let key = eval_lambda(
+            &program.scatter.key_lambda,
+            &key_args,
+            &env,
+            state,
+            int_mask,
+        )?;
         let val_args = vec![edge_val; program.scatter.value_lambda.params.len()];
-        let val =
-            eval_lambda(&program.scatter.value_lambda, &val_args, &env, state, int_mask)?;
+        let val = eval_lambda(
+            &program.scatter.value_lambda,
+            &val_args,
+            &env,
+            state,
+            int_mask,
+        )?;
         scatter_keys.push(key);
         scatter_vals.push(val);
     }
@@ -595,7 +608,10 @@ fn sssp_weight_from_edge_state(spec: &SsspKernel, edge: &EdgeState) -> Result<i6
     }
 }
 
-fn sssp_uniform_weight_from_dense(spec: &SsspKernel, state: &DenseGraph) -> Result<Option<i64>, GasSimError> {
+fn sssp_uniform_weight_from_dense(
+    spec: &SsspKernel,
+    state: &DenseGraph,
+) -> Result<Option<i64>, GasSimError> {
     if let Some(weight) = spec.edge_weight_constant {
         return Ok(Some(weight));
     }
@@ -603,7 +619,13 @@ fn sssp_uniform_weight_from_dense(spec: &SsspKernel, state: &DenseGraph) -> Resu
         return match state.edge_props.get(prop) {
             Some(values) if values.is_empty() => Ok(None),
             Some(values) => match &values[0] {
-                Value::Int(v) if values.iter().all(|value| matches!(value, Value::Int(other) if other == v)) => Ok(Some(*v)),
+                Value::Int(v)
+                    if values
+                        .iter()
+                        .all(|value| matches!(value, Value::Int(other) if other == v)) =>
+                {
+                    Ok(Some(*v))
+                }
                 Value::Int(_) => Ok(None),
                 _ => Err(GasSimError::TypeMismatch(prop.to_string())),
             },
@@ -613,7 +635,10 @@ fn sssp_uniform_weight_from_dense(spec: &SsspKernel, state: &DenseGraph) -> Resu
     Ok(None)
 }
 
-fn sssp_weight_column_from_dense(spec: &SsspKernel, state: &DenseGraph) -> Result<Option<Vec<i64>>, GasSimError> {
+fn sssp_weight_column_from_dense(
+    spec: &SsspKernel,
+    state: &DenseGraph,
+) -> Result<Option<Vec<i64>>, GasSimError> {
     if sssp_uniform_weight_from_dense(spec, state)?.is_some() {
         return Ok(None);
     }
@@ -675,7 +700,9 @@ fn simulate_specialized_kernel_on_state_for_iters(
     iters: usize,
 ) -> Result<GraphState, GasSimError> {
     match kernel {
-        SpecializedKernel::PageRank(spec) => simulate_pagerank_on_state_for_iters(spec, state, iters),
+        SpecializedKernel::PageRank(spec) => {
+            simulate_pagerank_on_state_for_iters(spec, state, iters)
+        }
         SpecializedKernel::Sssp(spec) => simulate_sssp_on_state_for_iters(spec, state, iters),
         SpecializedKernel::ConnectedComponents(spec) => {
             simulate_connected_components_on_state_for_iters(spec, state, iters)
@@ -2387,6 +2414,7 @@ impl CompiledLambda {
         edge_idx: Option<usize>,
         self_node_idx: Option<usize>,
         params: &[Value],
+        int_mask: Option<u64>,
     ) -> Result<Value, GasSimError> {
         if self.enforce_arity && params.len() != self.arity {
             return Err(GasSimError::TypeMismatch(
@@ -2398,6 +2426,7 @@ impl CompiledLambda {
             edge_idx,
             self_node_idx,
             params,
+            int_mask,
         };
         eval_compiled_expr(&self.expr, &ctx)
     }
@@ -2410,6 +2439,7 @@ struct CompiledPlan {
     gather_reducer: CompiledReducer,
     apply: Option<CompiledLambda>,
     target_property: String,
+    int_mask: Option<u64>,
 }
 
 impl CompiledPlan {
@@ -2442,6 +2472,7 @@ impl CompiledPlan {
             gather_reducer,
             apply,
             target_property: program.apply.target_property.as_str().to_string(),
+            int_mask: int_mask_for_program(program),
         })
     }
 }
@@ -2459,9 +2490,17 @@ enum CompiledReducer {
 }
 
 impl CompiledReducer {
-    fn reduce(&self, state: &DenseGraph, lhs: Value, rhs: Value) -> Result<Value, GasSimError> {
+    fn reduce(
+        &self,
+        state: &DenseGraph,
+        lhs: Value,
+        rhs: Value,
+        int_mask: Option<u64>,
+    ) -> Result<Value, GasSimError> {
         match self {
-            CompiledReducer::Fast(ReducerKind::Sum) => eval_binary(BinaryOp::Add, lhs, rhs),
+            CompiledReducer::Fast(ReducerKind::Sum) => {
+                eval_binary_with_mask(BinaryOp::Add, lhs, rhs, int_mask)
+            }
             CompiledReducer::Fast(ReducerKind::Min) => {
                 let l = lhs.as_f64()?;
                 let r = rhs.as_f64()?;
@@ -2472,7 +2511,9 @@ impl CompiledReducer {
                 let r = rhs.as_f64()?;
                 Ok(if l >= r { lhs } else { rhs })
             }
-            CompiledReducer::Lambda(lambda) => lambda.eval(state, None, None, &[lhs, rhs]),
+            CompiledReducer::Lambda(lambda) => {
+                lambda.eval(state, None, None, &[lhs, rhs], int_mask)
+            }
         }
     }
 }
@@ -2723,6 +2764,7 @@ struct CompiledEvalCtx<'a> {
     edge_idx: Option<usize>,
     self_node_idx: Option<usize>,
     params: &'a [Value],
+    int_mask: Option<u64>,
 }
 
 fn eval_compiled_expr(
@@ -2812,11 +2854,11 @@ fn eval_compiled_expr(
         CompiledExpr::Binary { op, left, right } => {
             let lhs = eval_compiled_expr(left, ctx)?;
             let rhs = eval_compiled_expr(right, ctx)?;
-            eval_binary(*op, lhs, rhs)
+            eval_binary_with_mask(*op, lhs, rhs, ctx.int_mask)
         }
         CompiledExpr::Unary { op, expr } => {
             let value = eval_compiled_expr(expr, ctx)?;
-            eval_unary(*op, value)
+            eval_unary_with_mask(*op, value, ctx.int_mask)
         }
         CompiledExpr::Ternary {
             condition,
@@ -2895,7 +2937,7 @@ fn execute_iteration_compiled(
         let dst_idx = match &plan.scatter_key {
             CompiledScatterKey::EdgeDst => Some(state.edges[edge_idx].dst_idx),
             CompiledScatterKey::Lambda(lambda) => {
-                let key = lambda.eval(state, Some(edge_idx), None, &[])?;
+                let key = lambda.eval(state, Some(edge_idx), None, &[], plan.int_mask)?;
                 key_to_node_idx(&key, state)?
             }
         };
@@ -2904,13 +2946,20 @@ fn execute_iteration_compiled(
         };
 
         let value = if let Some(hot) = hot_scatter.as_ref() {
-            hot.eval(state, edge_idx)?
+            hot.eval(state, edge_idx, plan.int_mask)?
         } else {
-            plan.scatter_value.eval(state, Some(edge_idx), None, &[])?
+            plan.scatter_value
+                .eval(state, Some(edge_idx), None, &[], plan.int_mask)?
         };
 
         if has_gathered[dst_idx] {
-            reduce_in_place_compiled(&plan.gather_reducer, state, &mut gathered[dst_idx], value)?;
+            reduce_in_place_compiled(
+                &plan.gather_reducer,
+                state,
+                &mut gathered[dst_idx],
+                value,
+                plan.int_mask,
+            )?;
         } else {
             gathered[dst_idx] = value;
             has_gathered[dst_idx] = true;
@@ -2931,7 +2980,7 @@ fn execute_iteration_compiled(
             current_prop.clone()
         };
         let result = if let Some(apply) = &plan.apply {
-            apply.eval(state, None, Some(node_idx), &[gathered_val])?
+            apply.eval(state, None, Some(node_idx), &[gathered_val], plan.int_mask)?
         } else {
             gathered_val
         };
@@ -2979,7 +3028,11 @@ impl<'a> HotScatter<'a> {
         }
     }
 
-    fn from_add_expr(lhs: &CompiledExpr, rhs: &CompiledExpr, state: &'a DenseGraph) -> Option<Self> {
+    fn from_add_expr(
+        lhs: &CompiledExpr,
+        rhs: &CompiledExpr,
+        state: &'a DenseGraph,
+    ) -> Option<Self> {
         let CompiledExpr::EdgeSrcProp(src_name) = lhs else {
             return None;
         };
@@ -3000,7 +3053,12 @@ impl<'a> HotScatter<'a> {
         }
     }
 
-    fn eval(&self, state: &DenseGraph, edge_idx: usize) -> Result<Value, GasSimError> {
+    fn eval(
+        &self,
+        state: &DenseGraph,
+        edge_idx: usize,
+        int_mask: Option<u64>,
+    ) -> Result<Value, GasSimError> {
         let edge = &state.edges[edge_idx];
         match self {
             HotScatter::EdgeProp(values) => Ok(values[edge_idx].clone()),
@@ -3010,14 +3068,18 @@ impl<'a> HotScatter<'a> {
                 src_values,
                 constant,
             } => match &src_values[edge.src_idx] {
-                Value::Int(v) => Ok(Value::Int(*v + *constant)),
-                _ => Err(GasSimError::TypeMismatch("compiled edge scatter int add".into())),
+                Value::Int(v) => Ok(Value::Int(apply_int_mask(*v + *constant, int_mask))),
+                _ => Err(GasSimError::TypeMismatch(
+                    "compiled edge scatter int add".into(),
+                )),
             },
             HotScatter::EdgeSrcPropPlusEdgeProp {
                 src_values,
                 edge_values,
             } => match (&src_values[edge.src_idx], &edge_values[edge_idx]) {
-                (Value::Int(lhs), Value::Int(rhs)) => Ok(Value::Int(*lhs + *rhs)),
+                (Value::Int(lhs), Value::Int(rhs)) => {
+                    Ok(Value::Int(apply_int_mask(*lhs + *rhs, int_mask)))
+                }
                 _ => Err(GasSimError::TypeMismatch(
                     "compiled edge scatter property add".into(),
                 )),
@@ -3031,11 +3093,12 @@ fn reduce_in_place_compiled(
     state: &DenseGraph,
     slot: &mut Value,
     incoming: Value,
+    int_mask: Option<u64>,
 ) -> Result<(), GasSimError> {
     let handled = match reducer {
         CompiledReducer::Fast(ReducerKind::Sum) => match (&mut *slot, &incoming) {
             (Value::Int(lhs), Value::Int(rhs)) => {
-                *lhs += *rhs;
+                *lhs = apply_int_mask(*lhs + *rhs, int_mask);
                 true
             }
             (Value::Float(lhs), Value::Float(rhs)) => {
@@ -3081,7 +3144,7 @@ fn reduce_in_place_compiled(
         Ok(())
     } else {
         let existing = std::mem::replace(slot, Value::Unit);
-        *slot = reducer.reduce(state, existing, incoming)?;
+        *slot = reducer.reduce(state, existing, incoming, int_mask)?;
         Ok(())
     }
 }
@@ -3332,7 +3395,11 @@ fn eval_binary_with_mask(
         BinaryOp::Div => match (l, r) {
             (Value::Int(a), Value::Int(b)) => {
                 let denom = u64_from_i64(b);
-                let out = if denom == 0 { 0 } else { u64_from_i64(a) / denom };
+                let out = if denom == 0 {
+                    0
+                } else {
+                    u64_from_i64(a) / denom
+                };
                 Ok(Value::Int(apply_int_mask(out as i64, int_mask)))
             }
             (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 / b)),

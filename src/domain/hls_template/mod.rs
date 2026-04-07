@@ -21,7 +21,7 @@ pub use big_merger::{big_merger_group_unit, big_merger_unit};
 pub use config::{HlsEdgeConfig, HlsKernelConfig, HlsNodeConfig};
 pub use graphyflow_big::graphyflow_big_unit;
 pub use graphyflow_headers::{render_graphyflow_big_header, render_graphyflow_little_header};
-pub use graphyflow_little::graphyflow_little_unit;
+pub use graphyflow_little::{graphyflow_little_unit, little_kernel_uses_zero_reduce};
 pub use hbm_writer::{hbm_writer_multi_group_unit, hbm_writer_unit};
 pub use little_merger::{little_merger_group_unit, little_merger_unit};
 pub use shared_kernel_params::{
@@ -361,28 +361,49 @@ mod tests {
     }
 
     #[test]
-    fn pagerank_reducers_init_memory_on_hardware() -> Result<(), HlsTemplateError> {
+    fn pagerank_little_zero_identity_uses_emulation_only_init() -> Result<(), HlsTemplateError> {
         let ops = ops_for_app("pagerank");
         let edge = edge_config_for_app("pagerank");
         let big = graphyflow_big_unit(&ops, &edge)?.to_code();
         let little = graphyflow_little_unit(&ops, &edge)?.to_code();
+        let little_norm = normalize(&little);
 
         assert!(
             big.contains("INIT_REDUCE_MEM: for"),
             "expected big-kernel reducer init loop"
         );
         assert!(
-            little.contains("INIT_REDUCE_MEM_PE: for"),
+            little.contains("INIT_PROP_MEM: for"),
             "expected little-kernel reducer init loop"
         );
         assert!(
             !big.contains("#ifdef EMULATION"),
             "big-kernel reducer init must run on hardware too"
         );
-        assert!(
-            !little.contains("#ifdef EMULATION"),
-            "little-kernel reducer init must run on hardware too"
-        );
+        assert!(little.contains("#ifdef EMULATION"));
+        assert!(little.contains("#ifndef EMULATION"));
+        assert!(little_norm.contains("prop_mem[pe][i]=0u;"));
+        assert!(little_norm.contains("prop_mem[(pe+4)][i]=0u;"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn unweighted_sssp_little_zero_identity_uses_emulation_only_init(
+    ) -> Result<(), HlsTemplateError> {
+        let ops = ops_for_path("apps/topology_variants/sssp_topo_l11_b3.dsl");
+        let edge = edge_config_for_path("apps/topology_variants/sssp_topo_l11_b3.dsl");
+        let little = graphyflow_little_unit(&ops, &edge)?.to_code();
+        let little_norm = normalize(&little);
+
+        assert!(little.contains("INIT_PROP_MEM: for"));
+        assert!(little.contains("INIT_PROP_MEM_PE: for"));
+        assert!(little.contains("#ifdef EMULATION"));
+        assert!(little.contains("#ifndef EMULATION"));
+        assert!(little_norm.contains("prop_mem[pe][i]=0u;"));
+        assert!(little_norm.contains("prop_mem[(pe+4)][i]=0u;"));
+        assert!(!little.contains("prop_mem[pe][i] = identity_word;"));
+        assert!(!little.contains("prop_mem[(pe + 4)][i] = identity_word;"));
 
         Ok(())
     }
@@ -432,6 +453,25 @@ mod tests {
     }
 
     #[test]
+    fn rendered_hbm_little_zero_identity_hw_flushes_without_init() -> Result<(), HlsTemplateError> {
+        let ops = ops_for_app("sssp");
+        let edge = edge_config_for_app("sssp");
+        let little = graphyflow_little_unit(&ops, &edge)?.to_code();
+        let little_norm = normalize(&little);
+
+        assert!(little.contains("INIT_PROP_MEM: for"));
+        assert!(little.contains("INIT_PROP_MEM_PE: for"));
+        assert!(little.contains("#ifdef EMULATION"));
+        assert!(little.contains("#ifndef EMULATION"));
+        assert!(little_norm.contains("prop_mem[pe][i]=0u;"));
+        assert!(little_norm.contains("prop_mem[(pe+4)][i]=0u;"));
+        assert!(!little.contains("prop_mem[pe][i] = identity_word;"));
+        assert!(!little.contains("prop_mem[(pe + 4)][i] = identity_word;"));
+
+        Ok(())
+    }
+
+    #[test]
     fn ddr_sssp_codegen_uses_compact_edge_prop_unpack() -> Result<(), HlsTemplateError> {
         let ops = ops_for_app("sssp");
         let edge = edge_config_for_path("apps/topology_variants/sssp_ddr_4b4l_codegen.dsl");
@@ -458,7 +498,11 @@ mod tests {
     }
 
     fn ops_for_app(app: &str) -> KernelOpBundle {
-        let source = load_source(&format!("apps/{app}.dsl"));
+        ops_for_path(&format!("apps/{app}.dsl"))
+    }
+
+    fn ops_for_path(relative_path: &str) -> KernelOpBundle {
+        let source = load_source(relative_path);
         let lowered = LoweredProgram::parse_and_lower(&source).expect("lower");
         let gas = lower_to_gas(&lowered.ast, &lowered.ir).expect("gas");
         extract_kernel_ops(&gas).expect("ops")

@@ -57,7 +57,7 @@ NAME_MODE="full"
 REPO_LABEL=""
 OWNER_LABEL=""
 REPO_MOUNT="/vitis_work/refactor_Graphyflow"
-PLATFORM_HOST="/path/to/platform/xilinx_u55c"
+PLATFORM_HOST="/data/feiyang/vitis_docker/vitis_docker/xilinx_u55c_gen3x16_xdma_3_202210_1"
 DEVICE="/vitis_work/platform/xilinx_u55c_gen3x16_xdma_3_202210_1.xpfm"
 XILINX_VOLUME="vitis-2024.2"
 
@@ -112,7 +112,7 @@ fi
 
 # Auto-detect platform from project Makefile if it references u200
 if grep -q "xilinx_u200" "$proj_dir/Makefile" 2>/dev/null; then
-  u200_host="/path/to/platform/xilinx_u200"
+  u200_host="/data/feiyang/vitis_docker/vitis_docker/xilinx_u200_gen3x16_xdma_2_202110_1"
   if [[ -d "$u200_host" ]] && [[ "$PLATFORM_HOST" == *"u55c"* ]]; then
     PLATFORM_HOST="$u200_host"
     DEVICE="/vitis_work/platform/xilinx_u200_gen3x16_xdma_2_202110_1.xpfm"
@@ -210,6 +210,12 @@ if [[ -n "${GRAPHYFLOW_DEBUG_EVENTS:-}" ]]; then
 fi
 if [[ -n "${GRAPHYFLOW_EVENT_WATCHDOG_SECONDS:-}" ]]; then
   extra_envs+=(-e "GRAPHYFLOW_EVENT_WATCHDOG_SECONDS=${GRAPHYFLOW_EVENT_WATCHDOG_SECONDS}")
+fi
+if [[ -n "${GRAPHYFLOW_DEBUG_EDGES:-}" ]]; then
+  extra_envs+=(-e "GRAPHYFLOW_DEBUG_EDGES=${GRAPHYFLOW_DEBUG_EDGES}")
+fi
+if [[ -n "${GRAPHYFLOW_DEBUG_MAP:-}" ]]; then
+  extra_envs+=(-e "GRAPHYFLOW_DEBUG_MAP=${GRAPHYFLOW_DEBUG_MAP}")
 fi
 if [[ -n "${GRAPHYFLOW_DUMP_PARTITIONS:-}" ]]; then
   extra_envs+=(-e "GRAPHYFLOW_DUMP_PARTITIONS=${GRAPHYFLOW_DUMP_PARTITIONS}")

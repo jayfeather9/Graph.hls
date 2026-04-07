@@ -52,6 +52,15 @@ fn use_reference_style_little(
     edge.edge_weight_bits == 0 && use_reference_style_little_ops(ops)
 }
 
+/// Returns true when the little kernel's reduce memory is zero-initialized
+/// (reference-style), meaning the merger must also use zero-sentinel logic.
+pub fn little_kernel_uses_zero_reduce(
+    ops: &KernelOpBundle,
+    edge: &crate::domain::hls_template::HlsEdgeConfig,
+) -> bool {
+    use_reference_style_little(ops, edge)
+}
+
 fn use_identity_style_cc_little(ops: &KernelOpBundle) -> bool {
     matches!(ops.gather.kind, ReducerKind::Min)
         && ops.gather.identity == ReducerIdentity::PositiveInfinity
@@ -1261,58 +1270,66 @@ fn reduce_unit(
         body: identity_fill_body,
     }));
 
-    if !reference_style {
-        // Initialize the active reduce-memory range on every invocation.
-        // Relying on URAM power-up contents causes hardware-only corruption in
-        // PageRank and any other zero-sentinel reducers.
-        let init_pe = ident("init_pe")?;
-        let mut init_inner = Vec::new();
-        init_inner.push(HlsStatement::Pragma(HlsPragma::new("HLS PIPELINE II = 1")?));
-        init_inner.push(assignment(
-            HlsExpr::Index {
-                target: Box::new(HlsExpr::Index {
-                    target: Box::new(HlsExpr::Identifier(prop_mem.clone())),
-                    index: Box::new(HlsExpr::Identifier(init_pe.clone())),
-                }),
-                index: Box::new(HlsExpr::Identifier(init_idx.clone())),
-            },
-            HlsExpr::Identifier(identity_word.clone()),
-        ));
-        body.push(HlsStatement::ForLoop(HlsForLoop {
-            label: LoopLabel::new("INIT_REDUCE_MEM_PE")?,
-            init: LoopInitializer::Declaration(HlsVarDecl {
-                name: init_pe.clone(),
-                ty: HlsType::Int32,
-                init: Some(literal_int(0)),
+    // Zero-identity reducers can rely on hardware's cleared URAM state in
+    // real hw builds, but emulation still needs an explicit init. Nonzero
+    // identities must always initialize.
+    let init_pe = ident("init_pe")?;
+    let mut init_inner = Vec::new();
+    init_inner.push(HlsStatement::Pragma(HlsPragma::new("HLS UNROLL")?));
+    init_inner.push(assignment(
+        HlsExpr::Index {
+            target: Box::new(HlsExpr::Index {
+                target: Box::new(HlsExpr::Identifier(prop_mem.clone())),
+                index: Box::new(HlsExpr::Identifier(init_pe.clone())),
             }),
-            condition: binary(
-                HlsBinaryOp::Lt,
-                HlsExpr::Identifier(init_pe.clone()),
-                HlsExpr::Identifier(ident("PE_NUM")?),
-            ),
-            increment: LoopIncrement::Unary(
-                HlsUnaryOp::PreIncrement,
-                HlsExpr::Identifier(init_pe.clone()),
-            ),
-            body: vec![HlsStatement::ForLoop(HlsForLoop {
-                label: LoopLabel::new("INIT_REDUCE_MEM_IDX")?,
+            index: Box::new(HlsExpr::Identifier(init_idx.clone())),
+        },
+        HlsExpr::Identifier(identity_word.clone()),
+    ));
+    let init_loop = HlsStatement::ForLoop(HlsForLoop {
+        label: LoopLabel::new("INIT_PROP_MEM")?,
+        init: LoopInitializer::Declaration(HlsVarDecl {
+            name: init_idx.clone(),
+            ty: HlsType::Int32,
+            init: Some(literal_int(0)),
+        }),
+        condition: binary(
+            HlsBinaryOp::Lt,
+            HlsExpr::Identifier(init_idx.clone()),
+            HlsExpr::Identifier(ident("rounded_num_words")?),
+        ),
+        increment: LoopIncrement::Unary(
+            HlsUnaryOp::PreIncrement,
+            HlsExpr::Identifier(init_idx.clone()),
+        ),
+        body: vec![
+            HlsStatement::Pragma(HlsPragma::new("HLS PIPELINE II = 1")?),
+            HlsStatement::ForLoop(HlsForLoop {
+                label: LoopLabel::new("INIT_PROP_MEM_PE")?,
                 init: LoopInitializer::Declaration(HlsVarDecl {
-                    name: init_idx.clone(),
+                    name: init_pe.clone(),
                     ty: HlsType::Int32,
                     init: Some(literal_int(0)),
                 }),
                 condition: binary(
                     HlsBinaryOp::Lt,
-                    HlsExpr::Identifier(init_idx.clone()),
-                    HlsExpr::Identifier(ident("rounded_num_words")?),
+                    HlsExpr::Identifier(init_pe.clone()),
+                    HlsExpr::Identifier(ident("PE_NUM")?),
                 ),
                 increment: LoopIncrement::Unary(
                     HlsUnaryOp::PreIncrement,
-                    HlsExpr::Identifier(init_idx.clone()),
+                    HlsExpr::Identifier(init_pe.clone()),
                 ),
                 body: init_inner,
-            })],
-        }));
+            }),
+        ],
+    });
+    if reference_style || zero_sentinel_mode {
+        body.push(HlsStatement::Raw("#ifdef EMULATION".to_string()));
+        body.push(init_loop);
+        body.push(HlsStatement::Raw("#endif".to_string()));
+    } else {
+        body.push(init_loop);
     }
 
     // Cache initialization
@@ -1756,10 +1773,24 @@ fn reduce_unit(
                 HlsExpr::Identifier(word_tmp.clone()),
                 prop_mem_pe_i(HlsExpr::Identifier(pe_idx_out.clone())),
             ),
-            assignment(
-                prop_mem_pe_i(HlsExpr::Identifier(pe_idx_out.clone())),
-                HlsExpr::Identifier(identity_word.clone()),
-            ),
+            if reference_style || zero_sentinel_mode {
+                HlsStatement::Raw("#ifndef EMULATION".to_string())
+            } else {
+                HlsStatement::Raw(String::new())
+            },
+            if reference_style || zero_sentinel_mode {
+                assignment(
+                    prop_mem_pe_i(HlsExpr::Identifier(pe_idx_out.clone())),
+                    literal_uint(0),
+                )
+            } else {
+                HlsStatement::Raw(String::new())
+            },
+            if reference_style || zero_sentinel_mode {
+                HlsStatement::Raw("#endif".to_string())
+            } else {
+                HlsStatement::Raw(String::new())
+            },
         ],
         else_body: Vec::new(),
     }));
@@ -1817,10 +1848,21 @@ fn reduce_unit(
                     HlsExpr::Identifier(word_tmp2.clone()),
                     prop_mem_pe_i(pe_offset.clone()),
                 ),
-                assignment(
-                    prop_mem_pe_i(pe_offset.clone()),
-                    HlsExpr::Identifier(identity_word.clone()),
-                ),
+                if reference_style || zero_sentinel_mode {
+                    HlsStatement::Raw("#ifndef EMULATION".to_string())
+                } else {
+                    HlsStatement::Raw(String::new())
+                },
+                if reference_style || zero_sentinel_mode {
+                    assignment(prop_mem_pe_i(pe_offset.clone()), literal_uint(0))
+                } else {
+                    HlsStatement::Raw(String::new())
+                },
+                if reference_style || zero_sentinel_mode {
+                    HlsStatement::Raw("#endif".to_string())
+                } else {
+                    HlsStatement::Raw(String::new())
+                },
             ],
             else_body: Vec::new(),
         }));

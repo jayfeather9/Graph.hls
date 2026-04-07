@@ -21,7 +21,9 @@ use refactor_Graphyflow::{
     utils::{
         graph_converter::convert_graph,
         graph_generator::{AppKind, GraphSpec},
-        graph_metadata::{extract_graph_metadata_from_dataset_path, extract_graph_metadata_from_profile_log},
+        graph_metadata::{
+            extract_graph_metadata_from_dataset_path, extract_graph_metadata_from_profile_log,
+        },
         grouping_predictor::{
             emit_saved_dataset_groupings, evaluate_metadata_predictor, load_static_grouping_model,
             predict_best_grouping, predict_best_grouping_from_metadata,
@@ -79,9 +81,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         let output_path = args
             .next()
             .ok_or_else(|| "missing output json path".to_string())?;
-        let dsl_name = args
-            .next()
-            .ok_or_else(|| "missing dsl/app name (e.g. sssp, pagerank, connected_components)".to_string())?;
+        let dsl_name = args.next().ok_or_else(|| {
+            "missing dsl/app name (e.g. sssp, pagerank, connected_components)".to_string()
+        })?;
         let app = dsl_name.parse::<AppKind>()?;
         let graph = convert_graph(Path::new(&input_path), &app)?;
         let json = serde_json::to_string(&graph)?;
@@ -403,7 +405,10 @@ fn simulate_from_input(
         }
     };
     if let Some(start) = compute_start {
-        println!("simulation compute time sec: {:.6}", start.elapsed().as_secs_f64());
+        println!(
+            "simulation compute time sec: {:.6}",
+            start.elapsed().as_secs_f64()
+        );
     }
     let rendered = (!quiet_output).then(|| render_property(&state, &target_prop));
     if skip_reference {
@@ -413,7 +418,8 @@ fn simulate_from_input(
         return Ok(());
     }
     let app_name = app_name_from_arg(app_arg);
-    let reference_input = reference_input.expect("reference input should exist when reference is enabled");
+    let reference_input =
+        reference_input.expect("reference input should exist when reference is enabled");
     let reference_result = if max_iters.is_some() {
         reference_values_with_iters(&app_name, &reference_input, &target_prop, max_iters)
     } else {
@@ -565,9 +571,7 @@ fn default_grouping32_benchmark_path() -> Result<PathBuf, Box<dyn Error>> {
         .join("grouping32_benchmark_2026-04-04.tsv"))
 }
 
-fn evaluate_grouping32_model_cmd(
-    benchmark_path: Option<PathBuf>,
-) -> Result<(), Box<dyn Error>> {
+fn evaluate_grouping32_model_cmd(benchmark_path: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     let benchmark_path = benchmark_path.unwrap_or(default_grouping32_benchmark_path()?);
     let summary = evaluate_grouping32_model(&benchmark_path)?;
     println!("32-bit Grouping Evaluation");
@@ -602,8 +606,10 @@ fn predict_grouping32_from_static_model_cmd(
     dataset_path: &str,
 ) -> Result<(), Box<dyn Error>> {
     let model = load_static_grouping32_model(Path::new(model_path))?;
-    let prediction =
-        predict_grouping32_from_static_model_for_dataset(Path::new(model_path), Path::new(dataset_path))?;
+    let prediction = predict_grouping32_from_static_model_for_dataset(
+        Path::new(model_path),
+        Path::new(dataset_path),
+    )?;
     let metadata = extract_graph_metadata_from_dataset_path(Path::new(dataset_path))
         .ok_or_else(|| format!("failed to extract metadata from {dataset_path}"))?;
 

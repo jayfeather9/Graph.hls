@@ -1,0 +1,15 @@
+dataset,simple_name
+graph500-scale23-ef16_adj,G23
+rmat-19-32,R19
+rmat-21-32,R21
+rmat-24-16,R24
+amazon-2008,AM
+ca-hollywood-2009,HW
+dbpedia-link,DB
+soc-flickr-und,FU
+soc-LiveJournal1,LJ
+soc-orkut-dir,OR
+web-baidu-baike,BB
+web-Google,GG
+web-hudong,HD
+wiki-topcats,TC

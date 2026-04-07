@@ -159,12 +159,15 @@ void Reduc_105_unit_reduce(hls::stream<update_tuple_t_little> &update_set_stm, h
         #pragma HLS UNROLL
         identity_word.range(((dist_idx * DISTANCE_BITWIDTH) + (DISTANCE_BITWIDTH - 1u)), (dist_idx * DISTANCE_BITWIDTH)) = identity_val;
     }
-    INIT_REDUCE_MEM_PE: for (int32_t init_pe = 0; (init_pe < PE_NUM); ++init_pe) {
-        INIT_REDUCE_MEM_IDX: for (int32_t init_idx = 0; (init_idx < rounded_num_words); ++init_idx) {
-            #pragma HLS PIPELINE II = 1
+    #ifdef EMULATION
+    INIT_PROP_MEM: for (int32_t init_idx = 0; (init_idx < rounded_num_words); ++init_idx) {
+        #pragma HLS PIPELINE II = 1
+        INIT_PROP_MEM_PE: for (int32_t init_pe = 0; (init_pe < PE_NUM); ++init_pe) {
+            #pragma HLS UNROLL
             prop_mem[init_pe][init_idx] = identity_word;
         }
     }
+    #endif
     LOOP_FOR_32: for (int32_t i = 0; (i < (L + 1)); ++i) {
         #pragma HLS UNROLL
         LOOP_FOR_31: for (int32_t pe = 0; (pe < PE_NUM); ++pe) {
@@ -215,7 +218,9 @@ void Reduc_105_unit_reduce(hls::stream<update_tuple_t_little> &update_set_stm, h
             reduce_word_t word = identity_word;
             if ((pe < PE_NUM)) {
                 word = prop_mem[pe][i];
-                prop_mem[pe][i] = identity_word;
+                #ifndef EMULATION
+                prop_mem[pe][i] = 0u;
+                #endif
             }
             pe_mem_outs_1[pe].write(word);
         }
@@ -224,7 +229,9 @@ void Reduc_105_unit_reduce(hls::stream<update_tuple_t_little> &update_set_stm, h
             reduce_word_t word = identity_word;
             if (((pe + 4) < PE_NUM)) {
                 word = prop_mem[(pe + 4)][i];
-                prop_mem[(pe + 4)][i] = identity_word;
+                #ifndef EMULATION
+                prop_mem[(pe + 4)][i] = 0u;
+                #endif
             }
             pe_mem_outs_2[pe].write(word);
         }

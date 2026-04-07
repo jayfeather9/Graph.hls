@@ -1,10 +1,12 @@
 #include "graph_loader.h"
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <iostream>
 #include <sys/stat.h>
 #include <vector>
@@ -13,7 +15,9 @@ struct Edge {
     int src;
     int dest;
     int weight;
-    std::vector<uint64_t> props;
+#if EDGE_PROP_COUNT > 0
+    std::array<uint64_t, EDGE_PROP_COUNT> props{};
+#endif
 };
 
 GraphCSR load_graph_from_file(const std::string &file_path) {
@@ -40,14 +44,7 @@ GraphCSR load_graph_from_file(const std::string &file_path) {
     static std::vector<char> io_buf(kIOBufSize);
     std::setvbuf(file, io_buf.data(), _IOFBF, io_buf.size());
 
-    std::vector<Edge> edges;
-    {
-        struct stat st;
-        if (stat(file_path.c_str(), &st) == 0 && st.st_size > 0) {
-            const size_t est_edges = static_cast<size_t>(st.st_size / 16);
-            edges.reserve(est_edges);
-        }
-    }
+    std::deque<Edge> edges;
 
     int max_vertex_id = -1;
     int min_vertex_id = 1;
@@ -107,21 +104,20 @@ GraphCSR load_graph_from_file(const std::string &file_path) {
             p = end;
         }
 
-        if (EDGE_PROP_COUNT > 0) {
-            edge.props.assign(EDGE_PROP_COUNT, 0);
-            if (parsed_props.empty()) {
-                edge.props[0] = 1;
-            } else {
-                for (size_t i = 0; i < edge.props.size() && i < parsed_props.size();
-                     ++i) {
-                    edge.props[i] = parsed_props[i];
-                }
-            }
-            edge.weight = static_cast<int>(edge.props[0]);
+#if EDGE_PROP_COUNT > 0
+        if (parsed_props.empty()) {
+            edge.props[0] = 1;
         } else {
-            edge.weight =
-                parsed_props.empty() ? 1 : static_cast<int>(parsed_props[0]);
+            for (size_t i = 0; i < edge.props.size() && i < parsed_props.size();
+                 ++i) {
+                edge.props[i] = parsed_props[i];
+            }
         }
+        edge.weight = static_cast<int>(edge.props[0]);
+#else
+        edge.weight =
+            parsed_props.empty() ? 1 : static_cast<int>(parsed_props[0]);
+#endif
 
         if (is_one_based) {
             edge.src--;
@@ -134,20 +130,20 @@ GraphCSR load_graph_from_file(const std::string &file_path) {
             continue;
         }
 
-        edges.push_back(std::move(edge));
+        if (edge.src > max_vertex_id) {
+            max_vertex_id = edge.src;
+        }
+        if (edge.dest > max_vertex_id) {
+            max_vertex_id = edge.dest;
+        }
+        if (edge.src < min_vertex_id) {
+            min_vertex_id = edge.src;
+        }
+        if (edge.dest < min_vertex_id) {
+            min_vertex_id = edge.dest;
+        }
 
-        if (edges.back().src > max_vertex_id) {
-            max_vertex_id = edges.back().src;
-        }
-        if (edges.back().dest > max_vertex_id) {
-            max_vertex_id = edges.back().dest;
-        }
-        if (edges.back().src < min_vertex_id) {
-            min_vertex_id = edges.back().src;
-        }
-        if (edges.back().dest < min_vertex_id) {
-            min_vertex_id = edges.back().dest;
-        }
+        edges.push_back(std::move(edge));
     }
 
     std::fclose(file);
@@ -196,12 +192,14 @@ GraphCSR load_graph_from_file(const std::string &file_path) {
         graph.columns[static_cast<size_t>(i)] = e.dest;
         graph.weights[static_cast<size_t>(i)] = e.weight;
 
-        if (EDGE_PROP_COUNT > 0) {
+#if EDGE_PROP_COUNT > 0
+        {
             const size_t base = static_cast<size_t>(i) * EDGE_PROP_COUNT;
             for (size_t p_idx = 0; p_idx < EDGE_PROP_COUNT; ++p_idx) {
                 graph.edge_props[base + p_idx] = e.props[p_idx];
             }
         }
+#endif
 
         if (e.src != last_src) {
             const int fill_from = last_src + 1;

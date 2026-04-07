@@ -17,9 +17,9 @@ use crate::utils::graph_metadata::{
 };
 
 const VARIANT_METADATA_CANDIDATES: &[&str] = &[
-    "variant_metadata.csv",
-    "variant_metadata_new10_mixed.csv",
-    "variant_metadata_new12_candidates.csv",
+    "/data/feiyang/GraphyFlow_variant_generator_hw_builds/automation/variant_metadata.csv",
+    "/data/feiyang/GraphyFlow_variant_generator_hw_builds/automation/variant_metadata_new10_mixed.csv",
+    "/data/feiyang/GraphyFlow_variant_generator_hw_builds/automation/variant_metadata_new12_candidates.csv",
 ];
 
 const BIG_GROUP_DST_CAPACITY: usize = 524_288;

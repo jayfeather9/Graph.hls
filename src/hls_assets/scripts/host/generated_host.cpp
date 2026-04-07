@@ -76,6 +76,7 @@ void AlgorithmHost::prepare_data(const PartitionContainer &container,
     const char *debug_edges_env = std::getenv("GRAPHYFLOW_DEBUG_EDGES");
     const bool debug_edges =
         (debug_edges_env != nullptr && debug_edges_env[0] != '\0');
+    m_start_node = start_node;
 
     h_distances.assign(m_num_vertices, distance_t(0));
     switch (config.algorithm_kind) {
@@ -2093,6 +2094,14 @@ bool AlgorithmHost::check_convergence_and_update(
         if (global_id < 0 || global_id >= m_num_vertices) {
             return;
         }
+        if (config.algorithm_kind == AlgorithmKind::Sssp &&
+            !config.needs_edge_weight) {
+            if (global_id == m_start_node) {
+                value = ap_fixed_pod_t(0);
+            } else if (value == ap_fixed_pod_t(0)) {
+                value = INFINITY_POD;
+            }
+        }
         if (!has_value[global_id]) {
             new_values[global_id] = value;
             has_value[global_id] = 1;
@@ -2247,6 +2256,12 @@ bool AlgorithmHost::check_convergence_and_update(
             }
             break;
         }
+    }
+
+    if (config.algorithm_kind == AlgorithmKind::Sssp &&
+        !config.needs_edge_weight && m_start_node >= 0 &&
+        m_start_node < m_num_vertices) {
+        h_distances[m_start_node] = distance_t(0);
     }
 
     switch (config.convergence_mode) {
