@@ -124,7 +124,12 @@ fn write_bitwidth_section(
         node.node_prop_int_bits
     )
     .unwrap();
-    writeln!(out, "#define DISTANCE_SIGNED 0").unwrap();
+    writeln!(
+        out,
+        "#define DISTANCE_SIGNED {}",
+        if node.node_prop_signed { 1 } else { 0 }
+    )
+    .unwrap();
     writeln!(out, "#define WEIGHT_BITWIDTH DISTANCE_BITWIDTH").unwrap();
     writeln!(out, "#define WEIGHT_INTEGER_PART DISTANCE_INTEGER_PART").unwrap();
     writeln!(out, "#define OUT_END_MARKER_BITWIDTH 4").unwrap();
