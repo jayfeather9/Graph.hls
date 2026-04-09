@@ -138,8 +138,8 @@ KernelRunResult run_single_fpga_pass(const std::string &xclbin_path,
         std::cout << "--- [Host] Phase 3: Enqueuing kernel tasks ---"
                   << std::endl;
 
-        auto kernel_enqueue_start = std::chrono::high_resolution_clock::now();
         algo_host.execute_kernel_iteration(partition_container);
+        auto kernel_enqueue_end = std::chrono::high_resolution_clock::now();
 
         // Submit every dependent queue before waiting. Without the explicit
         // flushes below, a finish() on an upstream queue can block while
@@ -163,7 +163,7 @@ KernelRunResult run_single_fpga_pass(const std::string &xclbin_path,
 
         auto kernel_finish = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> end_to_end_time =
-            kernel_finish - kernel_enqueue_start;
+            kernel_finish - kernel_enqueue_end;
 
         algo_host.transfer_data_from_fpga();
 

@@ -243,23 +243,6 @@ PartitionContainer partitionGraph(const GraphCSR *graph,
     std::cout << "[PHASE 2] Total dst vertices: " << total_dst_vertices
               << std::endl;
 
-    const size_t one_partition_capacity =
-        static_cast<size_t>(container.num_dense_groups) * LITTLE_MAX_DST +
-        static_cast<size_t>(container.num_sparse_groups) * BIG_MAX_DST;
-
-    if (one_partition_capacity == 0) {
-        std::cerr << "[ERROR] Invalid configuration: one_partition_capacity is "
-                     "zero."
-                  << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-
-    const size_t partition_number =
-        ceil_div_size_t(total_dst_vertices, one_partition_capacity);
-
-    std::cout << "[PHASE 2] Calculated partition number needed: "
-              << partition_number << std::endl;
-
     std::vector<DestinationAssignment> dst_assignment(
         static_cast<size_t>(graph->num_vertices));
 
@@ -284,25 +267,6 @@ PartitionContainer partitionGraph(const GraphCSR *graph,
                                                       .num_pipelines));
     }
 
-    for (size_t g = 0; g < container.num_dense_groups; ++g) {
-        little_dst_lists[g].resize(partition_number);
-    }
-    for (size_t g = 0; g < container.num_sparse_groups; ++g) {
-        big_dst_lists[g].resize(partition_number);
-    }
-
-    std::vector<size_t> dense_remaining(
-        container.num_dense_groups,
-        static_cast<size_t>(LITTLE_MAX_DST) * partition_number);
-    std::vector<size_t> sparse_remaining(
-        container.num_sparse_groups,
-        static_cast<size_t>(BIG_MAX_DST) * partition_number);
-
-    size_t dense_remaining_total = std::accumulate(dense_remaining.begin(),
-                                                   dense_remaining.end(), 0UL);
-    size_t sparse_remaining_total = std::accumulate(sparse_remaining.begin(),
-                                                    sparse_remaining.end(), 0UL);
-
     std::vector<double> dense_assigned_edges(container.num_dense_groups, 0.0);
     std::vector<double> sparse_assigned_edges(container.num_sparse_groups, 0.0);
     double dense_assigned_edges_total = 0.0;
@@ -312,135 +276,156 @@ PartitionContainer partitionGraph(const GraphCSR *graph,
         dense_throughput.begin(), dense_throughput.end(), 0.0);
     const double sparse_total_throughput = std::accumulate(
         sparse_throughput.begin(), sparse_throughput.end(), 0.0);
+    const size_t total_edge_count = static_cast<size_t>(graph->num_edges);
+    const double total_throughput =
+        dense_total_throughput + sparse_total_throughput;
+    size_t little_target_edges = 0;
+    if (container.num_dense_groups == 0) {
+        little_target_edges = 0;
+    } else if (container.num_sparse_groups == 0) {
+        little_target_edges = total_edge_count;
+    } else if (total_throughput > 0.0) {
+        little_target_edges = static_cast<size_t>(
+            static_cast<double>(total_edge_count) * dense_total_throughput /
+            total_throughput);
+    }
+    little_target_edges = std::min(little_target_edges, total_edge_count);
+    const size_t big_target_edges = total_edge_count - little_target_edges;
 
-    auto choose_group_by_projected_ms =
-        [](const std::vector<size_t> &remaining,
-           const std::vector<double> &assigned_edges,
-           const std::vector<double> &throughput, double edge_cost) -> size_t {
-        size_t best_group = std::numeric_limits<size_t>::max();
-        double best_score = std::numeric_limits<double>::infinity();
-        for (size_t g = 0; g < remaining.size(); ++g) {
-            if (remaining[g] == 0) {
-                continue;
-            }
-            const double projected_ms =
-                (assigned_edges[g] + edge_cost) / throughput[g];
-            if (best_group == std::numeric_limits<size_t>::max() ||
-                projected_ms < best_score - 1e-12 ||
-                (std::abs(projected_ms - best_score) <= 1e-12 &&
-                 remaining[g] > remaining[best_group])) {
-                best_group = g;
-                best_score = projected_ms;
-            }
+    std::cout << "[PHASE 2] Throughput targets: dense=" << little_target_edges
+              << " edges, sparse=" << big_target_edges << " edges" << std::endl;
+
+    const double dense_group_target =
+        (container.num_dense_groups == 0)
+            ? 0.0
+            : static_cast<double>(little_target_edges) /
+                  static_cast<double>(container.num_dense_groups);
+    const double sparse_group_target =
+        (container.num_sparse_groups == 0)
+            ? 0.0
+            : static_cast<double>(big_target_edges) /
+                  static_cast<double>(container.num_sparse_groups);
+
+    auto choose_round_robin_group =
+        [](const std::vector<double> &assigned_edges, size_t &rr_cursor,
+           double per_group_target) -> size_t {
+        if (assigned_edges.empty()) {
+            return std::numeric_limits<size_t>::max();
         }
-        return best_group;
+
+        auto find_candidate = [&](bool prefer_under_target) -> size_t {
+            for (size_t attempt = 0; attempt < assigned_edges.size(); ++attempt) {
+                const size_t g = (rr_cursor + attempt) % assigned_edges.size();
+                if (!prefer_under_target ||
+                    assigned_edges[g] + 1e-9 < per_group_target) {
+                    return g;
+                }
+            }
+            return std::numeric_limits<size_t>::max();
+        };
+
+        size_t group_idx = find_candidate(true);
+        if (group_idx == std::numeric_limits<size_t>::max()) {
+            group_idx = find_candidate(false);
+        }
+        if (group_idx != std::numeric_limits<size_t>::max()) {
+            rr_cursor = (group_idx + 1) % assigned_edges.size();
+        }
+        return group_idx;
     };
 
-    auto assign_vertex_to_slot = [&](bool is_dense, size_t group_idx,
-                                     int vertex_id) -> bool {
+    auto assign_vertex_to_group =
+        [&](bool is_dense, size_t group_idx, int vertex_id) -> size_t {
         auto &dst_lists = is_dense ? little_dst_lists : big_dst_lists;
         const size_t cap = is_dense ? static_cast<size_t>(LITTLE_MAX_DST)
                                     : static_cast<size_t>(BIG_MAX_DST);
-        for (size_t part = 0; part < partition_number; ++part) {
-            if (dst_lists[group_idx][part].size() < cap) {
-                dst_lists[group_idx][part].push_back(vertex_id);
-                dst_assignment[static_cast<size_t>(vertex_id)] = {
-                    true, is_dense, group_idx, part};
-                return true;
-            }
+        auto &group_partitions = dst_lists[group_idx];
+        if (group_partitions.empty() || group_partitions.back().size() >= cap) {
+            group_partitions.emplace_back();
         }
-        return false;
+        group_partitions.back().push_back(vertex_id);
+        const size_t partition_idx = group_partitions.size() - 1;
+        dst_assignment[static_cast<size_t>(vertex_id)] = {true, is_dense,
+                                                          group_idx, partition_idx};
+        return partition_idx;
     };
+
+    size_t dense_rr_cursor = 0;
+    size_t sparse_rr_cursor = 0;
 
     for (int vertex_id : unique_dst_vertices) {
         const double edge_cost =
             static_cast<double>(node_indegrees[static_cast<size_t>(vertex_id)]);
 
-        const bool can_dense = (dense_remaining_total > 0);
-        const bool can_sparse = (sparse_remaining_total > 0);
-        if (!can_dense && !can_sparse) {
-            std::cerr << "[ERROR] Destination capacity exhausted unexpectedly."
+        bool assigned = false;
+
+        if (container.num_dense_groups > 0 &&
+            dense_assigned_edges_total + 1e-9 <
+                static_cast<double>(little_target_edges)) {
+            const size_t group_idx = choose_round_robin_group(
+                dense_assigned_edges, dense_rr_cursor, dense_group_target);
+            if (group_idx != std::numeric_limits<size_t>::max()) {
+                assign_vertex_to_group(true, group_idx, vertex_id);
+                dense_assigned_edges[group_idx] += edge_cost;
+                dense_assigned_edges_total += edge_cost;
+                assigned = true;
+            }
+        }
+
+        if (!assigned && container.num_sparse_groups > 0) {
+            const size_t group_idx = choose_round_robin_group(
+                sparse_assigned_edges, sparse_rr_cursor, sparse_group_target);
+            if (group_idx != std::numeric_limits<size_t>::max()) {
+                assign_vertex_to_group(false, group_idx, vertex_id);
+                sparse_assigned_edges[group_idx] += edge_cost;
+                sparse_assigned_edges_total += edge_cost;
+                assigned = true;
+            }
+        }
+
+        if (!assigned && container.num_dense_groups > 0) {
+            const size_t group_idx = choose_round_robin_group(
+                dense_assigned_edges, dense_rr_cursor, dense_group_target);
+            if (group_idx != std::numeric_limits<size_t>::max()) {
+                assign_vertex_to_group(true, group_idx, vertex_id);
+                dense_assigned_edges[group_idx] += edge_cost;
+                dense_assigned_edges_total += edge_cost;
+                assigned = true;
+            }
+        }
+
+        if (!assigned) {
+            std::cerr << "[ERROR] Cannot assign dst vertex " << vertex_id
+                      << " because no dense/sparse group is available."
                       << std::endl;
             std::exit(EXIT_FAILURE);
         }
-
-        bool choose_dense_class = false;
-        if (can_dense && !can_sparse) {
-            choose_dense_class = true;
-        } else if (!can_dense && can_sparse) {
-            choose_dense_class = false;
-        } else {
-            // Global class balancing objective: keep dense-vs-sparse estimated
-            // processing times close, where each class time is
-            // edges / (sum(pipeline_throughput)).
-            const double dense_ms_now =
-                dense_assigned_edges_total / dense_total_throughput;
-            const double sparse_ms_now =
-                sparse_assigned_edges_total / sparse_total_throughput;
-            const double dense_ms_if =
-                (dense_assigned_edges_total + edge_cost) / dense_total_throughput;
-            const double sparse_ms_if =
-                (sparse_assigned_edges_total + edge_cost) / sparse_total_throughput;
-            const double diff_if_dense = std::abs(dense_ms_if - sparse_ms_now);
-            const double diff_if_sparse = std::abs(dense_ms_now - sparse_ms_if);
-            choose_dense_class = (diff_if_dense <= diff_if_sparse);
-        }
-
-        bool choose_dense = choose_dense_class;
-        size_t choose_group = std::numeric_limits<size_t>::max();
-
-        if (choose_dense) {
-            choose_group = choose_group_by_projected_ms(
-                dense_remaining, dense_assigned_edges, dense_throughput, edge_cost);
-            if (choose_group == std::numeric_limits<size_t>::max()) {
-                choose_dense = false;
-            }
-        }
-        if (!choose_dense) {
-            choose_group =
-                choose_group_by_projected_ms(sparse_remaining,
-                                             sparse_assigned_edges,
-                                             sparse_throughput, edge_cost);
-            if (choose_group == std::numeric_limits<size_t>::max()) {
-                choose_dense = true;
-                choose_group = choose_group_by_projected_ms(
-                    dense_remaining, dense_assigned_edges, dense_throughput,
-                    edge_cost);
-            }
-        }
-
-        if (choose_group == std::numeric_limits<size_t>::max()) {
-            std::cerr << "[ERROR] Cannot assign dst vertex " << vertex_id
-                      << " due to exhausted group capacities." << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
-
-        if (!assign_vertex_to_slot(choose_dense, choose_group, vertex_id)) {
-            std::cerr << "[ERROR] Failed to place dst vertex " << vertex_id
-                      << " into a concrete partition slot." << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
-
-        if (choose_dense) {
-            dense_remaining[choose_group]--;
-            dense_remaining_total--;
-            dense_assigned_edges[choose_group] += edge_cost;
-            dense_assigned_edges_total += edge_cost;
-        } else {
-            sparse_remaining[choose_group]--;
-            sparse_remaining_total--;
-            sparse_assigned_edges[choose_group] += edge_cost;
-            sparse_assigned_edges_total += edge_cost;
-        }
     }
 
-    for (size_t part = 0; part < partition_number; ++part) {
+    size_t max_partition_number = 0;
+    for (size_t g = 0; g < container.num_dense_groups; ++g) {
+        max_partition_number =
+            std::max(max_partition_number, little_dst_lists[g].size());
+    }
+    for (size_t g = 0; g < container.num_sparse_groups; ++g) {
+        max_partition_number =
+            std::max(max_partition_number, big_dst_lists[g].size());
+    }
+
+    std::cout << "[PHASE 2] Max partition slot count across groups: "
+              << max_partition_number << std::endl;
+
+    for (size_t part = 0; part < max_partition_number; ++part) {
         size_t vertices_in_part = 0;
         for (size_t g = 0; g < container.num_dense_groups; ++g) {
-            vertices_in_part += little_dst_lists[g][part].size();
+            if (part < little_dst_lists[g].size()) {
+                vertices_in_part += little_dst_lists[g][part].size();
+            }
         }
         for (size_t g = 0; g < container.num_sparse_groups; ++g) {
-            vertices_in_part += big_dst_lists[g][part].size();
+            if (part < big_dst_lists[g].size()) {
+                vertices_in_part += big_dst_lists[g][part].size();
+            }
         }
         std::cout << "[PHASE 2]   Partition " << part << ": assigning "
                   << vertices_in_part << " vertices" << std::endl;
