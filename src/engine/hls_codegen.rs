@@ -164,9 +164,9 @@ pub fn generate_sssp_hls_project(
     dest_root: impl AsRef<Path>,
 ) -> Result<PathBuf, HlsProjectError> {
     let ops = extract_kernel_ops(gas)?;
-    let node = build_node_config(program)?;
-    let edge = build_edge_config(program, &ops, &node)?;
     let spec = build_algorithm_spec(program, &ops, scatter_uses_edge_weight(&ops));
+    let node = build_node_config(program, &spec)?;
+    let edge = build_edge_config(program, &ops, &node)?;
     let config = HlsProjectConfig::from_program_env(program, edge, node)?;
 
     let dest_root = dest_root.as_ref();
@@ -1948,7 +1948,10 @@ fn expand_group_ids(groups: &[KernelGroup]) -> Vec<u32> {
     out
 }
 
-fn build_node_config(program: &Program) -> Result<HlsNodeConfig, HlsProjectError> {
+fn build_node_config(
+    program: &Program,
+    spec: &HlsAlgorithmSpec,
+) -> Result<HlsNodeConfig, HlsProjectError> {
     let node_schema = program.schema.node.as_ref().ok_or_else(|| {
         HlsProjectError::InvalidConfig("node schema is required for HLS".to_string())
     })?;
@@ -1964,7 +1967,7 @@ fn build_node_config(program: &Program) -> Result<HlsNodeConfig, HlsProjectError
             ))
         })?;
 
-    let (node_prop_bits, node_prop_int_bits, node_prop_signed) = match &prop_def.ty {
+    let (node_prop_bits, mut node_prop_int_bits, mut node_prop_signed) = match &prop_def.ty {
         crate::domain::ast::TypeExpr::Int { width } => (*width, *width, true),
         crate::domain::ast::TypeExpr::Fixed { width, int_width } => (*width, *int_width, true),
         crate::domain::ast::TypeExpr::Bool => (1, 1, false),
@@ -1975,6 +1978,19 @@ fn build_node_config(program: &Program) -> Result<HlsNodeConfig, HlsProjectError
             ));
         }
     };
+
+    let is_ddr = program
+        .hls
+        .as_ref()
+        .map(|h| h.memory == crate::domain::ast::MemoryBackend::Ddr)
+        .unwrap_or(false);
+    if is_ddr && spec.kind == HlsAlgorithmKind::Wcc {
+        // FIX: DDR WCC kernels follow the SG reference design, which carries
+        // labels as unsigned pods with a zero identity instead of signed
+        // 32/32 "distance" values.
+        node_prop_signed = false;
+        node_prop_int_bits = node_prop_int_bits.min(16).min(node_prop_bits);
+    }
 
     if node_prop_bits == 0 {
         return Err(HlsProjectError::InvalidConfig(
@@ -2420,6 +2436,58 @@ mod tests {
                 "emitted DDR weighted SSSP kernel regressed to 74-bit weight extraction",
             );
         }
+
+        fs::remove_dir_all(&output_root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn emits_unsigned_kernel_labels_for_ddr_wcc_project() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let source_path = manifest.join("apps/topology_variants/wcc_ddr_4b4l.dsl");
+        let source = fs::read_to_string(&source_path)?;
+        let lowered = LoweredProgram::parse_and_lower(&source)?;
+        let gas = lower_to_gas(&lowered.ast, &lowered.ir)?;
+
+        let dest_root = manifest.join("target/wcc_ddr_hls_fixture");
+        if dest_root.exists() {
+            fs::remove_dir_all(&dest_root)?;
+        }
+
+        let output_root = generate_sssp_hls_project(&gas, &lowered.ast, &dest_root)?;
+        let big_header = fs::read_to_string(output_root.join("scripts/kernel/graphyflow_big.h"))?;
+        let little_header =
+            fs::read_to_string(output_root.join("scripts/kernel/graphyflow_little.h"))?;
+        let shared = fs::read_to_string(output_root.join("scripts/kernel/shared_kernel_params.h"))?;
+
+        for content in [&big_header, &little_header] {
+            assert!(
+                content.contains("#define DISTANCE_SIGNED 0"),
+                "DDR WCC kernel headers must use unsigned label pods"
+            );
+            assert!(
+                content.contains("#define DISTANCE_INTEGER_PART 16"),
+                "DDR WCC kernel headers must keep the reference 32/16 label layout"
+            );
+        }
+        assert!(
+            shared.contains("#define DISTANCE_INTEGER_PART 16"),
+            "DDR WCC shared params must keep the reference 32/16 label layout"
+        );
+        assert!(
+            shared.contains("using ap_fixed_pod_t = ap_uint<DISTANCE_BITWIDTH>;"),
+            "DDR WCC shared params must use unsigned label pods"
+        );
+        assert!(
+            shared.contains("const ap_fixed_pod_t NEG_INFINITY_POD = 0u;")
+                || shared.contains("const ap_fixed_pod_t NEG_INFINITY_POD = 0;"),
+            "DDR WCC shared params must use zero as the kernel empty-label identity"
+        );
+        assert!(
+            !shared.contains("2147483648u"),
+            "DDR WCC shared params must not emit signed min-value identities"
+        );
 
         fs::remove_dir_all(&output_root)?;
         Ok(())
