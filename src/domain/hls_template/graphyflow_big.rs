@@ -3751,45 +3751,10 @@ fn graphyflow_big_top(
 
     // Two-stage drain: 4 PEs lower + 4 PEs upper → finalize merge.
     // This matches the SG reference drain structure.
-    body.push(HlsStatement::Declaration(HlsVarDecl {
-        name: ident("drain_lower_stream")?,
-        ty: HlsType::Stream(Box::new(custom("ap_uint<256>"))),
-        init: None,
-    }));
-    body.push(HlsStatement::Pragma(HlsPragma::new(
-        "HLS STREAM variable = drain_lower_stream depth = 4",
-    )?));
-    body.push(HlsStatement::Declaration(HlsVarDecl {
-        name: ident("drain_upper_stream")?,
-        ty: HlsType::Stream(Box::new(custom("ap_uint<256>"))),
-        init: None,
-    }));
-    body.push(HlsStatement::Pragma(HlsPragma::new(
-        "HLS STREAM variable = drain_upper_stream depth = 4",
-    )?));
     body.push(HlsStatement::Expr(HlsExpr::Call {
-        function: ident("Reduc_105_partial_drain_four")?,
+        function: ident("Reduc_105_drain_variable")?,
         args: vec![
             HlsExpr::Identifier(ident("pe_mem_out_streams")?),
-            literal_uint(0),
-            HlsExpr::Identifier(num_word_per_pe.clone()),
-            HlsExpr::Identifier(ident("drain_lower_stream")?),
-        ],
-    }));
-    body.push(HlsStatement::Expr(HlsExpr::Call {
-        function: ident("Reduc_105_partial_drain_four")?,
-        args: vec![
-            HlsExpr::Identifier(ident("pe_mem_out_streams")?),
-            literal_uint(4),
-            HlsExpr::Identifier(num_word_per_pe.clone()),
-            HlsExpr::Identifier(ident("drain_upper_stream")?),
-        ],
-    }));
-    body.push(HlsStatement::Expr(HlsExpr::Call {
-        function: ident("Reduc_105_finalize_drain")?,
-        args: vec![
-            HlsExpr::Identifier(ident("drain_lower_stream")?),
-            HlsExpr::Identifier(ident("drain_upper_stream")?),
             HlsExpr::Identifier(num_word_per_pe.clone()),
             HlsExpr::Identifier(ident("kernel_out_stream")?),
         ],

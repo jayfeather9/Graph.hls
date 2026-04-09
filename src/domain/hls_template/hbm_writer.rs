@@ -231,21 +231,6 @@ fn little_node_prop_loader_streaming_fn() -> Result<HlsFunction, HlsTemplateErro
         "HLS function_instantiate variable = i",
     )?));
     body.push(HlsStatement::Declaration(HlsVarDecl {
-        name: ident("active")?,
-        ty: HlsType::Bool,
-        init: Some(literal_bool(false)),
-    }));
-    body.push(HlsStatement::Declaration(HlsVarDecl {
-        name: ident("cur_base_addr")?,
-        ty: HlsType::UInt32,
-        init: Some(literal_uint(0)),
-    }));
-    body.push(HlsStatement::Declaration(HlsVarDecl {
-        name: ident("word_idx")?,
-        ty: HlsType::UInt32,
-        init: Some(literal_uint(0)),
-    }));
-    body.push(HlsStatement::Declaration(HlsVarDecl {
         name: ident("left_partitions")?,
         ty: HlsType::UInt32,
         init: Some(HlsExpr::Identifier(ident("num_partitions")?)),
@@ -253,7 +238,7 @@ fn little_node_prop_loader_streaming_fn() -> Result<HlsFunction, HlsTemplateErro
     body.push(HlsStatement::WhileLoop(crate::domain::hls::HlsWhileLoop {
         label: LoopLabel::new("littleKernelReadMemory")?,
         condition: literal_bool(true),
-        body: little_loader_body_streaming()?,
+        body: little_loader_body()?,
     }));
 
     Ok(HlsFunction {
@@ -263,185 +248,6 @@ fn little_node_prop_loader_streaming_fn() -> Result<HlsFunction, HlsTemplateErro
         params,
         body,
     })
-}
-
-fn little_loader_body_streaming() -> Result<Vec<HlsStatement>, HlsTemplateError> {
-    let mut body = Vec::new();
-    body.push(HlsStatement::Pragma(HlsPragma::new("HLS PIPELINE II = 1")?));
-
-    // if (!active) { try read request ... } else { stream one word ... }
-    let mut inactive_then = Vec::new();
-    inactive_then.push(HlsStatement::Declaration(HlsVarDecl {
-        name: ident("one_ppb_request_pkg")?,
-        ty: custom("ppb_request_pkt_t"),
-        init: None,
-    }));
-
-    let read_nb = method_call(
-        HlsExpr::Identifier(ident("ppb_req_stream")?),
-        "read_nb",
-        vec![HlsExpr::Identifier(ident("one_ppb_request_pkg")?)],
-    )?;
-
-    let mut got_req_then = Vec::new();
-    got_req_then.push(HlsStatement::Declaration(HlsVarDecl {
-        name: ident("request_round")?,
-        ty: HlsType::UInt32,
-        init: Some(member_expr(
-            HlsExpr::Identifier(ident("one_ppb_request_pkg")?),
-            "data",
-        )?),
-    }));
-    got_req_then.push(HlsStatement::Declaration(HlsVarDecl {
-        name: ident("base_addr")?,
-        ty: HlsType::UInt32,
-        init: Some(binary(
-            HlsBinaryOp::Shr,
-            binary(
-                HlsBinaryOp::Shl,
-                HlsExpr::Identifier(ident("request_round")?),
-                HlsExpr::Identifier(ident("LOG_SRC_BUFFER_SIZE")?),
-            ),
-            HlsExpr::Identifier(ident("LOG_DIST_PER_WORD")?),
-        )),
-    }));
-
-    let end_flag_expr = member_expr(HlsExpr::Identifier(ident("one_ppb_request_pkg")?), "last")?;
-
-    // if (last) { emit end; left_partitions--; if 0 break; } else { active=true; cur_base_addr=base; word_idx=0; }
-    let mut end_then = Vec::new();
-    end_then.push(HlsStatement::Declaration(HlsVarDecl {
-        name: ident("one_ppb_response_pkg")?,
-        ty: custom("little_ppb_resp_t"),
-        init: None,
-    }));
-    end_then.push(assignment(
-        member_expr(HlsExpr::Identifier(ident("one_ppb_response_pkg")?), "data")?,
-        literal_uint(0),
-    ));
-    end_then.push(assignment(
-        member_expr(HlsExpr::Identifier(ident("one_ppb_response_pkg")?), "dest")?,
-        literal_uint(0),
-    ));
-    end_then.push(assignment(
-        member_expr(HlsExpr::Identifier(ident("one_ppb_response_pkg")?), "last")?,
-        literal_bool(true),
-    ));
-    end_then.push(HlsStatement::Expr(method_call(
-        HlsExpr::Identifier(ident("ppb_resp_stream")?),
-        "write",
-        vec![HlsExpr::Identifier(ident("one_ppb_response_pkg")?)],
-    )?));
-    end_then.push(assignment(
-        HlsExpr::Identifier(ident("left_partitions")?),
-        binary(
-            HlsBinaryOp::Sub,
-            HlsExpr::Identifier(ident("left_partitions")?),
-            literal_uint(1),
-        ),
-    ));
-    end_then.push(HlsStatement::IfElse(crate::domain::hls::HlsIfElse {
-        condition: binary(
-            HlsBinaryOp::Eq,
-            HlsExpr::Identifier(ident("left_partitions")?),
-            literal_uint(0),
-        ),
-        then_body: vec![HlsStatement::Break],
-        else_body: Vec::new(),
-    }));
-
-    let mut cont_then = Vec::new();
-    cont_then.push(assignment(
-        HlsExpr::Identifier(ident("active")?),
-        literal_bool(true),
-    ));
-    cont_then.push(assignment(
-        HlsExpr::Identifier(ident("cur_base_addr")?),
-        HlsExpr::Identifier(ident("base_addr")?),
-    ));
-    cont_then.push(assignment(
-        HlsExpr::Identifier(ident("word_idx")?),
-        literal_uint(0),
-    ));
-
-    got_req_then.push(HlsStatement::IfElse(crate::domain::hls::HlsIfElse {
-        condition: end_flag_expr,
-        then_body: end_then,
-        else_body: cont_then,
-    }));
-
-    inactive_then.push(HlsStatement::IfElse(crate::domain::hls::HlsIfElse {
-        condition: read_nb,
-        then_body: got_req_then,
-        else_body: Vec::new(),
-    }));
-
-    let mut active_else = Vec::new();
-    active_else.push(HlsStatement::Declaration(HlsVarDecl {
-        name: ident("addr")?,
-        ty: HlsType::UInt32,
-        init: Some(binary(
-            HlsBinaryOp::Add,
-            HlsExpr::Identifier(ident("cur_base_addr")?),
-            HlsExpr::Identifier(ident("word_idx")?),
-        )),
-    }));
-    active_else.push(HlsStatement::Declaration(HlsVarDecl {
-        name: ident("one_ppb_response_pkg")?,
-        ty: custom("little_ppb_resp_t"),
-        init: None,
-    }));
-    active_else.push(assignment(
-        member_expr(HlsExpr::Identifier(ident("one_ppb_response_pkg")?), "data")?,
-        HlsExpr::Index {
-            target: Box::new(HlsExpr::Identifier(ident("node_distances_ddr")?)),
-            index: Box::new(HlsExpr::Identifier(ident("addr")?)),
-        },
-    ));
-    active_else.push(assignment(
-        member_expr(HlsExpr::Identifier(ident("one_ppb_response_pkg")?), "dest")?,
-        HlsExpr::Identifier(ident("addr")?),
-    ));
-    active_else.push(assignment(
-        member_expr(HlsExpr::Identifier(ident("one_ppb_response_pkg")?), "last")?,
-        literal_bool(false),
-    ));
-    active_else.push(HlsStatement::Expr(method_call(
-        HlsExpr::Identifier(ident("ppb_resp_stream")?),
-        "write",
-        vec![HlsExpr::Identifier(ident("one_ppb_response_pkg")?)],
-    )?));
-    active_else.push(assignment(
-        HlsExpr::Identifier(ident("word_idx")?),
-        binary(
-            HlsBinaryOp::Add,
-            HlsExpr::Identifier(ident("word_idx")?),
-            literal_uint(1),
-        ),
-    ));
-    active_else.push(HlsStatement::IfElse(crate::domain::hls::HlsIfElse {
-        condition: binary(
-            HlsBinaryOp::Eq,
-            HlsExpr::Identifier(ident("word_idx")?),
-            HlsExpr::Identifier(ident("SRC_BUFFER_WORDS")?),
-        ),
-        then_body: vec![assignment(
-            HlsExpr::Identifier(ident("active")?),
-            literal_bool(false),
-        )],
-        else_body: Vec::new(),
-    }));
-
-    body.push(HlsStatement::IfElse(crate::domain::hls::HlsIfElse {
-        condition: HlsExpr::Unary {
-            op: HlsUnaryOp::LogicalNot,
-            expr: Box::new(HlsExpr::Identifier(ident("active")?)),
-        },
-        then_body: inactive_then,
-        else_body: active_else,
-    }));
-
-    Ok(body)
 }
 
 fn little_loader_body() -> Result<Vec<HlsStatement>, HlsTemplateError> {

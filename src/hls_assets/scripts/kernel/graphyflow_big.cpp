@@ -598,11 +598,5 @@ extern "C" void graphyflow_big(const bus_word_t *edge_props, int32_t num_nodes, 
         #pragma HLS UNROLL
         Reduc_105_unit_reduce_single_pe(reduce_105_o2u_pair[i], pe_mem_out_streams[i], num_word_per_pe);
     }
-    hls::stream<ap_uint<256>> drain_lower_stream;
-    #pragma HLS STREAM variable = drain_lower_stream depth = 4
-    hls::stream<ap_uint<256>> drain_upper_stream;
-    #pragma HLS STREAM variable = drain_upper_stream depth = 4
-    Reduc_105_partial_drain_four(pe_mem_out_streams, 0u, num_word_per_pe, drain_lower_stream);
-    Reduc_105_partial_drain_four(pe_mem_out_streams, 4u, num_word_per_pe, drain_upper_stream);
-    Reduc_105_finalize_drain(drain_lower_stream, drain_upper_stream, num_word_per_pe, kernel_out_stream);
+    Reduc_105_drain_variable(pe_mem_out_streams, num_word_per_pe, kernel_out_stream);
 }
