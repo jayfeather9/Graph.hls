@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# ae_build.sh — Parallel HLS HW builder for AE projects
+# ae_build.sh — Parallel HLS HW builder for AE projects with retries
 #
 # Usage:
-#   ./scripts/ae_build.sh --build-list <file> [--parallel <N>] [--target <hw|hw_emu|sw_emu>]
+#   ./scripts/ae_build.sh --build-list <file> [--parallel <N>] [--target <hw|hw_emu|sw_emu>] [--max-retries <N>]
 #
 # The build list is a text file with one project directory per line.
 # Each project must contain a Makefile (emitted by ae_emit_*.sh).
@@ -14,6 +14,7 @@ PARALLEL=1
 TARGET="hw"
 BUILD_LIST=""
 ENV_SCRIPT=""
+MAX_RETRIES=10
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -21,6 +22,7 @@ while [[ $# -gt 0 ]]; do
         --parallel)   PARALLEL="$2"; shift 2 ;;
         --target)     TARGET="$2"; shift 2 ;;
         --env)        ENV_SCRIPT="$2"; shift 2 ;;
+        --max-retries) MAX_RETRIES="$2"; shift 2 ;;
         *)            echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -54,6 +56,7 @@ echo "  Build list: $BUILD_LIST"
 echo "  Projects: ${#PROJECTS[@]}"
 echo "  Parallel: $PARALLEL"
 echo "  Target: $TARGET"
+echo "  Max retries: $MAX_RETRIES"
 echo ""
 
 # ── Check which projects need building ────────────────────────────────────────
@@ -94,16 +97,42 @@ build_one() {
     local project_name
     project_name="$(basename "$project_dir")"
     local build_log="$project_dir/build_${TARGET}.log"
+    local status_file="$project_dir/build_${TARGET}.status"
     local start_time
     start_time=$(date +%s)
 
     echo "[BUILD START] $project_name ($(date '+%H:%M:%S'))"
+    : > "$build_log"
+    rm -f "$status_file"
 
-    (
-        cd "$project_dir"
-        make all TARGET="$TARGET" 2>&1
-    ) > "$build_log" 2>&1
-    local exit_code=$?
+    local attempt
+    local exit_code=1
+    for ((attempt = 1; attempt <= MAX_RETRIES; ++attempt)); do
+        echo "[BUILD TRY]   $project_name attempt $attempt/$MAX_RETRIES"
+        {
+            echo "=== BUILD ATTEMPT $attempt/$MAX_RETRIES START $(date '+%F %T') ==="
+            if (
+                cd "$project_dir"
+                make all TARGET="$TARGET"
+            ); then
+                exit_code=0
+            else
+                exit_code=$?
+            fi
+            echo "=== BUILD ATTEMPT $attempt/$MAX_RETRIES EXIT $exit_code $(date '+%F %T') ==="
+        } >> "$build_log" 2>&1
+
+        if [[ $exit_code -eq 0 ]]; then
+            echo "ok" > "$status_file"
+            break
+        fi
+
+        if [[ $attempt -lt MAX_RETRIES ]]; then
+            echo "[BUILD RETRY] $project_name after failed attempt $attempt/$MAX_RETRIES"
+        else
+            echo "fail" > "$status_file"
+        fi
+    done
 
     local end_time
     end_time=$(date +%s)
@@ -122,6 +151,7 @@ build_one() {
 
 export -f build_one
 export TARGET
+export MAX_RETRIES
 
 # ── Run builds ────────────────────────────────────────────────────────────────
 FAILED=0
@@ -133,10 +163,10 @@ if [[ $PARALLEL -le 1 ]]; then
 else
     # Parallel via xargs
     printf "%s\n" "${TO_BUILD[@]}" | xargs -P "$PARALLEL" -I{} bash -c 'build_one "$@"' _ {} || true
-    # Count failures by checking for xclbin
+    # Count failures by checking the per-project retry status.
     for project_dir in "${TO_BUILD[@]}"; do
-        xclbin="$project_dir/xclbin/graphyflow_kernels.${TARGET}.xclbin"
-        if [[ ! -f "$xclbin" ]]; then
+        status_file="$project_dir/build_${TARGET}.status"
+        if [[ ! -f "$status_file" ]] || [[ "$(cat "$status_file")" != "ok" ]]; then
             ((FAILED++))
         fi
     done
@@ -152,8 +182,8 @@ if [[ $FAILED -gt 0 ]]; then
     echo ""
     echo "  Failed projects:"
     for project_dir in "${TO_BUILD[@]}"; do
-        xclbin="$project_dir/xclbin/graphyflow_kernels.${TARGET}.xclbin"
-        if [[ ! -f "$xclbin" ]]; then
+        status_file="$project_dir/build_${TARGET}.status"
+        if [[ ! -f "$status_file" ]] || [[ "$(cat "$status_file")" != "ok" ]]; then
             echo "    $(basename "$project_dir") — log: $project_dir/build_${TARGET}.log"
         fi
     done
