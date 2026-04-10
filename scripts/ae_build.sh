@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# ae_build.sh — Parallel HLS HW builder for AE projects with retries
+# ae_build.sh — Parallel HLS HW builder for AE projects with frequency fallback
 #
 # Usage:
 #   ./scripts/ae_build.sh --build-list <file> [--parallel <N>] [--target <hw|hw_emu|sw_emu>] [--max-retries <N>]
@@ -15,6 +15,7 @@ TARGET="hw"
 BUILD_LIST=""
 ENV_SCRIPT=""
 MAX_RETRIES=10
+RETRY_FREQ_STEP_MHZ=10
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -57,6 +58,7 @@ echo "  Projects: ${#PROJECTS[@]}"
 echo "  Parallel: $PARALLEL"
 echo "  Target: $TARGET"
 echo "  Max retries: $MAX_RETRIES"
+echo "  Retry frequency step: -${RETRY_FREQ_STEP_MHZ} MHz"
 echo ""
 
 # ── Check which projects need building ────────────────────────────────────────
@@ -98,8 +100,14 @@ build_one() {
     project_name="$(basename "$project_dir")"
     local build_log="$project_dir/build_${TARGET}.log"
     local status_file="$project_dir/build_${TARGET}.status"
+    local kernel_mk="$project_dir/scripts/kernel/kernel.mk"
+    local base_freq=""
     local start_time
     start_time=$(date +%s)
+
+    if [[ -f "$kernel_mk" ]]; then
+        base_freq="$(sed -nE 's/^[[:space:]]*KERNEL_FREQ[[:space:]]*\\??=[[:space:]]*([0-9]+).*$/\\1/p' "$kernel_mk" | tail -1 || true)"
+    fi
 
     echo "[BUILD START] $project_name ($(date '+%H:%M:%S'))"
     : > "$build_log"
@@ -108,12 +116,34 @@ build_one() {
     local attempt
     local exit_code=1
     for ((attempt = 1; attempt <= MAX_RETRIES; ++attempt)); do
-        echo "[BUILD TRY]   $project_name attempt $attempt/$MAX_RETRIES"
+        local attempt_freq=""
+        if [[ -n "$base_freq" ]]; then
+            attempt_freq=$(( base_freq - RETRY_FREQ_STEP_MHZ * (attempt - 1) ))
+            if (( attempt_freq < 10 )); then
+                attempt_freq=10
+            fi
+        fi
+
+        if [[ -n "$attempt_freq" ]]; then
+            echo "[BUILD TRY]   $project_name attempt $attempt/$MAX_RETRIES @ ${attempt_freq} MHz"
+        else
+            echo "[BUILD TRY]   $project_name attempt $attempt/$MAX_RETRIES"
+        fi
         {
             echo "=== BUILD ATTEMPT $attempt/$MAX_RETRIES START $(date '+%F %T') ==="
+            if [[ -n "$attempt_freq" ]]; then
+                echo "=== BUILD ATTEMPT FREQ ${attempt_freq} MHz ==="
+            fi
             if (
                 cd "$project_dir"
-                make all TARGET="$TARGET"
+                if [[ $attempt -gt 1 ]]; then
+                    make cleanall TARGET="$TARGET"
+                fi
+                if [[ -n "$attempt_freq" ]]; then
+                    make all TARGET="$TARGET" KERNEL_FREQ="$attempt_freq"
+                else
+                    make all TARGET="$TARGET"
+                fi
             ); then
                 exit_code=0
             else
@@ -152,6 +182,7 @@ build_one() {
 export -f build_one
 export TARGET
 export MAX_RETRIES
+export RETRY_FREQ_STEP_MHZ
 
 # ── Run builds ────────────────────────────────────────────────────────────────
 FAILED=0
