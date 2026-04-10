@@ -77,37 +77,73 @@ PartitionContainer partitionGraph(const GraphCSR *graph,
               << std::endl;
 
     const size_t total_dsts = unique_dsts.size();
-    size_t little_dst_count =
-        std::min(static_cast<size_t>(LITTLE_MAX_DST), total_dsts);
-    if (little_dst_count == total_dsts) {
-        little_dst_count = static_cast<size_t>(total_dsts * 0.8);
+    std::vector<std::vector<int>> little_partition_dsts;
+    std::vector<std::vector<int>> big_partition_dsts;
+    std::unordered_map<int, std::pair<int, size_t>> dst_to_partition;
+    dst_to_partition.reserve(total_dsts);
+
+    auto assign_chunk = [&](bool is_little, size_t start_idx, size_t count) {
+        if (count == 0) {
+            return;
+        }
+        auto &partition_list =
+            is_little ? little_partition_dsts : big_partition_dsts;
+        const size_t part_idx = partition_list.size();
+        auto &chunk = partition_list.emplace_back();
+        chunk.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            const int dst = unique_dsts[start_idx + i];
+            chunk.push_back(dst);
+            dst_to_partition[dst] = {is_little ? 0 : 1, part_idx};
+        }
+    };
+
+    size_t cursor = 0;
+    if (total_dsts <= static_cast<size_t>(LITTLE_MAX_DST)) {
+        size_t little_dst_count = static_cast<size_t>(total_dsts * 0.8);
+        if (little_dst_count == 0 && total_dsts != 0) {
+            little_dst_count = 1;
+        }
+        if (little_dst_count >= total_dsts && total_dsts > 1) {
+            little_dst_count = total_dsts - 1;
+        }
+        const size_t big_dst_count = total_dsts - little_dst_count;
+        assign_chunk(true, 0, little_dst_count);
+        assign_chunk(false, little_dst_count, big_dst_count);
+    } else {
+        while (cursor < total_dsts) {
+            const size_t little_take =
+                std::min(static_cast<size_t>(LITTLE_MAX_DST), total_dsts - cursor);
+            assign_chunk(true, cursor, little_take);
+            cursor += little_take;
+            if (cursor >= total_dsts) {
+                break;
+            }
+
+            const size_t big_take =
+                std::min(static_cast<size_t>(BIG_MAX_DST), total_dsts - cursor);
+            assign_chunk(false, cursor, big_take);
+            cursor += big_take;
+        }
     }
-    size_t big_dst_count =
-        std::min(static_cast<size_t>(BIG_MAX_DST), total_dsts - little_dst_count);
 
-    std::vector<int> little_ordered_dsts;
-    std::vector<int> big_ordered_dsts;
-    little_ordered_dsts.reserve(little_dst_count);
-    big_ordered_dsts.reserve(big_dst_count);
-    std::unordered_map<int, int> dst_to_partition;
-
-    for (size_t i = 0; i < little_dst_count; ++i) {
-        little_ordered_dsts.push_back(unique_dsts[i]);
-        dst_to_partition[unique_dsts[i]] = 0;
+    size_t little_total_dsts = 0;
+    for (const auto &chunk : little_partition_dsts) {
+        little_total_dsts += chunk.size();
     }
-    for (size_t i = little_dst_count; i < little_dst_count + big_dst_count; ++i) {
-        big_ordered_dsts.push_back(unique_dsts[i]);
-        dst_to_partition[unique_dsts[i]] = 1;
+    size_t big_total_dsts = 0;
+    for (const auto &chunk : big_partition_dsts) {
+        big_total_dsts += chunk.size();
     }
 
-    std::cout << "[PHASE 2] Little: " << little_ordered_dsts.size()
-              << " dsts, Big: " << big_ordered_dsts.size() << " dsts."
-              << std::endl;
+    std::cout << "[PHASE 2] Little: " << little_total_dsts << " dsts across "
+              << little_partition_dsts.size() << " partition(s), Big: "
+              << big_total_dsts << " dsts across " << big_partition_dsts.size()
+              << " partition(s)." << std::endl;
 
-    std::vector<Edge> little_edges;
-    std::vector<Edge> big_edges;
-    little_edges.reserve(graph->num_edges);
-    big_edges.reserve(graph->num_edges);
+    std::vector<std::vector<Edge>> little_partition_edges(
+        little_partition_dsts.size());
+    std::vector<std::vector<Edge>> big_partition_edges(big_partition_dsts.size());
 
     for (int u = 0; u < graph->num_vertices; ++u) {
         for (int i = graph->offsets[u]; i < graph->offsets[u + 1]; ++i) {
@@ -131,66 +167,96 @@ PartitionContainer partitionGraph(const GraphCSR *graph,
                 std::exit(EXIT_FAILURE);
             }
 
-            if (it->second == 0) {
-                little_edges.push_back(std::move(edge));
+            const auto &partition_info = it->second;
+            if (partition_info.first == 0) {
+                little_partition_edges[partition_info.second].push_back(
+                    std::move(edge));
             } else {
-                big_edges.push_back(std::move(edge));
+                big_partition_edges[partition_info.second].push_back(
+                    std::move(edge));
             }
         }
     }
 
-    std::cout << "[PHASE 3] Little: " << little_edges.size()
-              << " edges, Big: " << big_edges.size() << " edges."
-              << std::endl;
+    size_t little_total_edges = 0;
+    for (const auto &chunk : little_partition_edges) {
+        little_total_edges += chunk.size();
+    }
+    size_t big_total_edges = 0;
+    for (const auto &chunk : big_partition_edges) {
+        big_total_edges += chunk.size();
+    }
+
+    std::cout << "[PHASE 3] Little: " << little_total_edges
+              << " edges, Big: " << big_total_edges << " edges." << std::endl;
 
     std::vector<int> global_to_local(static_cast<size_t>(graph->num_vertices), -1);
 
 #include "process_partition.inc"
 
-    PartitionDescriptor little_pd =
-        process_partition(little_edges.data(), little_edges.size(),
-                          little_ordered_dsts, true, LITTLE_KERNEL_NUM,
-                          global_to_local);
-    std::cout << "  Little: " << little_pd.num_vertices << " vertices, "
-              << little_pd.num_dsts << " dsts, " << little_pd.num_edges
-              << " edges -> " << little_pd.num_pipelines << " pipelines."
-              << std::endl;
-
-    PartitionDescriptor big_pd =
-        process_partition(big_edges.data(), big_edges.size(), big_ordered_dsts,
-                          false, BIG_KERNEL_NUM, global_to_local);
-    std::cout << "  Big: " << big_pd.num_vertices << " vertices, "
-              << big_pd.num_dsts << " dsts, " << big_pd.num_edges
-              << " edges -> " << big_pd.num_pipelines << " pipelines."
-              << std::endl;
-
     PartitionGroup little_group;
     little_group.group_id = 0;
     little_group.pipeline_offset = 0;
     little_group.num_pipelines = LITTLE_KERNEL_NUM;
-    little_group.partitions.push_back(std::move(little_pd));
 
     PartitionGroup big_group;
     big_group.group_id = 0;
     big_group.pipeline_offset = 0;
     big_group.num_pipelines = BIG_KERNEL_NUM;
-    big_group.partitions.push_back(std::move(big_pd));
+
+    for (size_t part_idx = 0; part_idx < little_partition_dsts.size();
+         ++part_idx) {
+        PartitionDescriptor little_pd =
+            process_partition(little_partition_edges[part_idx].data(),
+                              little_partition_edges[part_idx].size(),
+                              little_partition_dsts[part_idx], true,
+                              LITTLE_KERNEL_NUM, global_to_local);
+        std::cout << "  Little partition " << part_idx << ": "
+                  << little_pd.num_vertices << " vertices, "
+                  << little_pd.num_dsts << " dsts, " << little_pd.num_edges
+                  << " edges -> " << little_pd.num_pipelines << " pipelines."
+                  << std::endl;
+        little_group.partitions.push_back(std::move(little_pd));
+    }
+
+    for (size_t part_idx = 0; part_idx < big_partition_dsts.size(); ++part_idx) {
+        PartitionDescriptor big_pd =
+            process_partition(big_partition_edges[part_idx].data(),
+                              big_partition_edges[part_idx].size(),
+                              big_partition_dsts[part_idx], false,
+                              BIG_KERNEL_NUM, global_to_local);
+        std::cout << "  Big partition " << part_idx << ": " << big_pd.num_vertices
+                  << " vertices, " << big_pd.num_dsts << " dsts, "
+                  << big_pd.num_edges << " edges -> " << big_pd.num_pipelines
+                  << " pipelines." << std::endl;
+        big_group.partitions.push_back(std::move(big_pd));
+    }
 
     container.dense_groups.push_back(std::move(little_group));
     container.sparse_groups.push_back(std::move(big_group));
     container.num_dense_groups = 1;
     container.num_sparse_groups = 1;
-    container.num_dense_partitions = 1;
-    container.num_sparse_partitions = 1;
+    container.num_dense_partitions =
+        static_cast<unsigned int>(container.dense_groups[0].partitions.size());
+    container.num_sparse_partitions =
+        static_cast<unsigned int>(container.sparse_groups[0].partitions.size());
 
-    container.dense_partition_order.push_back({0, 0});
-    container.sparse_partition_order.push_back({0, 0});
     container.dense_partition_indices.resize(1);
-    container.dense_partition_indices[0].push_back(0);
     container.sparse_partition_indices.resize(1);
-    container.sparse_partition_indices[0].push_back(0);
+    for (size_t part_idx = 0; part_idx < container.dense_groups[0].partitions.size();
+         ++part_idx) {
+        container.dense_partition_order.push_back({0, part_idx});
+        container.dense_partition_indices[0].push_back(part_idx);
+    }
+    for (size_t part_idx = 0;
+         part_idx < container.sparse_groups[0].partitions.size(); ++part_idx) {
+        container.sparse_partition_order.push_back({0, part_idx});
+        container.sparse_partition_indices[0].push_back(part_idx);
+    }
 
-    std::cout << "[SUCCESS] no-L1 partitioning complete: 1 dense + 1 sparse."
+    std::cout << "[SUCCESS] no-L1 partitioning complete: "
+              << container.num_dense_partitions << " dense + "
+              << container.num_sparse_partitions << " sparse partition(s)."
               << std::endl;
     return container;
 }
