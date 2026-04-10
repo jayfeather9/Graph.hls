@@ -69,6 +69,11 @@ for f in "$DATASET_DIR"/*.txt "$DATASET_DIR"/*.mtx; do
     [[ -f "$f" ]] && DATASETS+=("$f")
 done
 
+find_dataset_file() {
+    local ds_name="$1"
+    find "$DATASET_DIR" -maxdepth 1 -type f \( -name "${ds_name}.txt" -o -name "${ds_name}.mtx" \) | head -1
+}
+
 rebuild_fig8_host_for_dataset() {
     local project_dir="$1"
     local dataset="$2"
@@ -223,7 +228,7 @@ case "$FIGURE" in
         if [[ -f "$L1L3_MANIFEST" ]]; then
             tail -n +2 "$L1L3_MANIFEST" | while IFS=, read -r ds_name variant project_dir; do
                 [[ "$project_dir" == *FAILED* || -z "$project_dir" ]] && continue
-                ds_file=$(find "$DATASET_DIR" -name "${ds_name}.*" | head -1)
+                ds_file=$(find_dataset_file "$ds_name")
                 [[ -z "$ds_file" ]] && continue
                 result=$(run_one "$project_dir" "$ds_file")
                 status=$(echo "$result" | cut -d, -f1)
@@ -238,7 +243,7 @@ case "$FIGURE" in
         if [[ -f "$L1L2L3_MANIFEST" ]]; then
             tail -n +2 "$L1L2L3_MANIFEST" | while IFS=, read -r ds_name variant project_dir; do
                 [[ "$project_dir" == *FAILED* || -z "$project_dir" ]] && continue
-                ds_file=$(find "$DATASET_DIR" -name "${ds_name}.*" | head -1)
+                ds_file=$(find_dataset_file "$ds_name")
                 [[ -z "$ds_file" ]] && continue
                 result=$(run_one "$project_dir" "$ds_file")
                 status=$(echo "$result" | cut -d, -f1)
