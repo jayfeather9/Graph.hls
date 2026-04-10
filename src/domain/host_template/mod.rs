@@ -1,6 +1,8 @@
 pub mod graph_preprocess;
 
-pub use graph_preprocess::{HostPreprocessSpec, render_graph_preprocess_cpp, render_graph_preprocess_no_l1_cpp};
+pub use graph_preprocess::{
+    HostPreprocessSpec, render_graph_preprocess_cpp, render_graph_preprocess_no_l1_cpp,
+};
 
 #[cfg(test)]
 mod tests {

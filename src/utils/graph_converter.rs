@@ -110,17 +110,10 @@ fn node_props_for_app(
     }
 }
 
-fn edge_props_for_app(
-    app: &AppKind,
-    weight: Option<i64>,
-) -> HashMap<String, serde_json::Value> {
+fn edge_props_for_app(app: &AppKind, weight: Option<i64>) -> HashMap<String, serde_json::Value> {
     match app {
-        AppKind::Sssp => {
-            HashMap::from([("weight".to_string(), json!(weight.unwrap_or(1)))])
-        }
-        AppKind::Als => {
-            HashMap::from([("rating".to_string(), json!(weight.unwrap_or(1) as f64))])
-        }
+        AppKind::Sssp => HashMap::from([("weight".to_string(), json!(weight.unwrap_or(1)))]),
+        AppKind::Als => HashMap::from([("rating".to_string(), json!(weight.unwrap_or(1) as f64))]),
         _ => HashMap::new(),
     }
 }

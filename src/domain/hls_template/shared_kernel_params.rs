@@ -384,9 +384,7 @@ fn function_prototypes(
             if apply_needs_aux {
                 params.push(HlsParameter {
                     name: HlsIdentifier::new("aux_node_props")?,
-                    ty: HlsType::ConstPointer(Box::new(HlsType::Custom(
-                        "bus_word_t".to_string(),
-                    ))),
+                    ty: HlsType::ConstPointer(Box::new(HlsType::Custom("bus_word_t".to_string()))),
                     passing: PassingStyle::Value,
                 });
             }
@@ -625,9 +623,7 @@ fn function_prototypes_multi_merger(
             if apply_needs_aux {
                 params.push(HlsParameter {
                     name: HlsIdentifier::new("aux_node_props")?,
-                    ty: HlsType::ConstPointer(Box::new(HlsType::Custom(
-                        "bus_word_t".to_string(),
-                    ))),
+                    ty: HlsType::ConstPointer(Box::new(HlsType::Custom("bus_word_t".to_string()))),
                     passing: PassingStyle::Value,
                 });
             }
@@ -726,10 +722,7 @@ fn function_prototypes_multi_merger(
             });
             for (gid0, _) in little_group_pipelines.iter().enumerate() {
                 params.push(HlsParameter {
-                    name: HlsIdentifier::new(&format!(
-                        "little_group_{}_num_partitions",
-                        gid0 + 1
-                    ))?,
+                    name: HlsIdentifier::new(&format!("little_group_{}_num_partitions", gid0 + 1))?,
                     ty: HlsType::UInt32,
                     passing: PassingStyle::Value,
                 });

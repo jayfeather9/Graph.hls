@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/ddr_dataset_config.sh"
+
 usage() {
   cat <<'USAGE'
 Usage: scripts/run_ddr_codegen_all.sh <sw_emu|hw_emu|hw> [dataset_dir] [options]
@@ -46,32 +51,9 @@ Examples:
 USAGE
 }
 
-resolve_dataset_config() {
-  case "$1" in
-    graph500-scale23-ef16_adj.mtx) printf '%s\t%s\t%s\n' "graph500" "400000" "1000000" ;;
-    rmat-19-32.txt) printf '%s\t%s\t%s\n' "r19" "250000" "950000" ;;
-    rmat-21-32.txt) printf '%s\t%s\t%s\n' "r21" "290000" "1000000" ;;
-    rmat-24-16.txt) printf '%s\t%s\t%s\n' "r24" "270000" "1000000" ;;
-    amazon-2008.mtx) printf '%s\t%s\t%s\n' "am" "160000" "460000" ;;
-    ca-hollywood-2009.mtx) printf '%s\t%s\t%s\n' "hollywood" "300000" "1000000" ;;
-    dbpedia-link.mtx) printf '%s\t%s\t%s\n' "dbpedia" "190000" "900000" ;;
-    soc-flickr-und.mtx) printf '%s\t%s\t%s\n' "flickr" "120000" "800000" ;;
-    soc-LiveJournal1.txt) printf '%s\t%s\t%s\n' "LiveJournal1" "170000" "700000" ;;
-    soc-orkut-dir.mtx) printf '%s\t%s\t%s\n' "orkut" "280000" "850000" ;;
-    web-baidu-baike.mtx) printf '%s\t%s\t%s\n' "baidu" "160000" "800000" ;;
-    web-Google.mtx) printf '%s\t%s\t%s\n' "Google" "150000" "580000" ;;
-    web-hudong.mtx) printf '%s\t%s\t%s\n' "hudong" "180000" "850000" ;;
-    wiki-topcats.txt) printf '%s\t%s\t%s\n' "topcats" "170000" "830000" ;;
-    *) return 1 ;;
-  esac
-}
-
 is_positive_int() {
   [[ "$1" =~ ^[0-9]+$ ]] && [[ "$1" -ge 1 ]]
 }
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_DATASET_DIR="/path/to/datasets"
 
 if [[ $# -gt 0 ]]; then
@@ -200,7 +182,7 @@ echo "==> output_dir=$OUTPUT_DIR"
 echo "==> datasets=$TOTAL_DATASETS projects=${#PROJECTS[@]}"
 
 for dataset_file in "${DATASET_FILES[@]}"; do
-  if ! dataset_config="$(resolve_dataset_config "$dataset_file")"; then
+  if ! dataset_config="$(resolve_ddr_dataset_config "$dataset_file")"; then
     echo "unknown dataset filename in $DATASET_DIR: $dataset_file" >&2
     exit 1
   fi

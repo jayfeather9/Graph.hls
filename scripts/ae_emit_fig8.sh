@@ -10,7 +10,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-DATASET_DIR="/path/to/datasets"
+DATASET_DIR="$SCRIPT_DIR/../../datasets"
 OUTPUT_ROOT="${REPO_ROOT}/target/ae/fig8"
 
 while [[ $# -gt 0 ]]; do

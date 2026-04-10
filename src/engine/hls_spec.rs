@@ -1,4 +1,6 @@
-use crate::domain::hls_ops::{KernelOpBundle, OperatorBinary, OperatorExpr, OperatorOperand, ReducerKind};
+use crate::domain::hls_ops::{
+    KernelOpBundle, OperatorBinary, OperatorExpr, OperatorOperand, ReducerKind,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HlsAlgorithmKind {
@@ -174,7 +176,11 @@ impl HlsAlgorithmSpec {
 
 fn scatter_is_unit_distance(expr: &OperatorExpr) -> bool {
     match expr {
-        OperatorExpr::Binary { op: OperatorBinary::Add, left, right } => {
+        OperatorExpr::Binary {
+            op: OperatorBinary::Add,
+            left,
+            right,
+        } => {
             matches!(
                 (&**left, &**right),
                 (

@@ -6,9 +6,9 @@ use crate::domain::hls::{
 use crate::domain::hls_ops::{KernelOpBundle, OperatorOperand, ReducerIdentity, ReducerKind};
 
 use super::utils::{
-    HlsForLoopBuilder, assignment, binary, custom, expr_uses_operand, ident, index_ident, int_decl, literal_bool,
-    literal_int, literal_uint, member_expr, method_call, range_method, raw, reducer_combine_expr,
-    reducer_combine_expr_zero_sentinel, reducer_identity_expr,
+    HlsForLoopBuilder, assignment, binary, custom, expr_uses_operand, ident, index_ident, int_decl,
+    literal_bool, literal_int, literal_uint, member_expr, method_call, range_method, raw,
+    reducer_combine_expr, reducer_combine_expr_zero_sentinel, reducer_identity_expr,
 };
 use super::{HlsKernelConfig, HlsTemplateError};
 
@@ -273,7 +273,11 @@ fn merge_little_kernels_group(
         condition: HlsExpr::Identifier(ident("merge_flag")?),
         then_body: {
             let mut then_body = Vec::new();
-            then_body.extend(little_merge_inner_body_group(zero_sentinel, ops, pipelines)?);
+            then_body.extend(little_merge_inner_body_group(
+                zero_sentinel,
+                ops,
+                pipelines,
+            )?);
             then_body.push(
                 HlsForLoopBuilder::new("reset_process_flag")?
                     .init(int_decl("i", literal_int(0))?)
@@ -314,7 +318,8 @@ fn merge_little_kernels_group(
     })
 }
 
-fn little_merge_inner_body_group(zero_sentinel: bool,
+fn little_merge_inner_body_group(
+    zero_sentinel: bool,
     ops: &KernelOpBundle,
     pipelines: usize,
 ) -> Result<Vec<HlsStatement>, HlsTemplateError> {
@@ -543,7 +548,10 @@ fn little_merge_inner_body_group(zero_sentinel: bool,
     Ok(body)
 }
 
-fn little_merge_inner_body(ops: &KernelOpBundle, zero_sentinel: bool) -> Result<Vec<HlsStatement>, HlsTemplateError> {
+fn little_merge_inner_body(
+    ops: &KernelOpBundle,
+    zero_sentinel: bool,
+) -> Result<Vec<HlsStatement>, HlsTemplateError> {
     let use_zero_sentinel = use_zero_sentinel_little_merge(ops, zero_sentinel);
     let mut body = Vec::new();
     body.push(raw("ap_fixed_pod_t uram_vals[DISTANCES_PER_REDUCE_WORD];"));
@@ -811,7 +819,6 @@ fn little_merge_flag(config: &HlsKernelConfig) -> Result<HlsExpr, HlsTemplateErr
     }
     Ok(binary(HlsBinaryOp::BitAnd, expr, literal_uint(1)))
 }
-
 
 fn flush_packet_body() -> Result<Vec<HlsStatement>, HlsTemplateError> {
     Ok(vec![

@@ -389,8 +389,8 @@ mod tests {
     }
 
     #[test]
-    fn unweighted_sssp_little_zero_identity_uses_emulation_only_init(
-    ) -> Result<(), HlsTemplateError> {
+    fn unweighted_sssp_little_zero_identity_uses_emulation_only_init()
+    -> Result<(), HlsTemplateError> {
         let ops = ops_for_path("apps/topology_variants/sssp_topo_l11_b3.dsl");
         let edge = edge_config_for_path("apps/topology_variants/sssp_topo_l11_b3.dsl");
         let little = graphyflow_little_unit(&ops, &edge)?.to_code();
