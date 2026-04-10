@@ -46,7 +46,7 @@ CLFLAGS += -Iscripts/host
 CLFLAGS += -I$(XILINX_XRT)/include
 CLFLAGS += -I$(XILINX_VITIS)/include
 CLFLAGS += -O3
-KERNEL_FREQ ?= 260
+KERNEL_FREQ ?= 270
 CLFLAGS += --kernel_frequency=$(KERNEL_FREQ)
 
 # VPP 在链接 .xclbin 文件时使用的参数。
