@@ -8,8 +8,7 @@ use crate::domain::hls_ops::{KernelOpBundle, ReducerKind};
 use super::utils::{
     HlsForLoopBuilder, assignment, binary, custom, ident, index_ident, int_decl, literal_bool,
     literal_int, literal_uint, member_expr, method_call, range_method, raw, reducer_combine_expr,
-    reducer_combine_expr_zero_sentinel,
-    reducer_identity_expr,
+    reducer_combine_expr_zero_sentinel, reducer_identity_expr,
 };
 use super::{HlsKernelConfig, HlsTemplateError};
 
@@ -31,7 +30,10 @@ pub fn big_merger_unit(
         includes: vec![HlsInclude::new("shared_kernel_params.h", false)?],
         defines: Vec::new(),
         globals: Vec::new(),
-        functions: vec![merge_big_kernels(ops, config, zero_sentinel)?, big_merger_top(config)?],
+        functions: vec![
+            merge_big_kernels(ops, config, zero_sentinel)?,
+            big_merger_top(config)?,
+        ],
     })
 }
 
@@ -314,7 +316,10 @@ fn merge_big_kernels_group(
     })
 }
 
-fn merge_inner_body(ops: &KernelOpBundle, zero_sentinel: bool) -> Result<Vec<HlsStatement>, HlsTemplateError> {
+fn merge_inner_body(
+    ops: &KernelOpBundle,
+    zero_sentinel: bool,
+) -> Result<Vec<HlsStatement>, HlsTemplateError> {
     let use_zero_sentinel = use_zero_sentinel_big_merge(ops, zero_sentinel);
     let mut body = Vec::new();
 
@@ -449,7 +454,8 @@ fn merge_inner_body(ops: &KernelOpBundle, zero_sentinel: bool) -> Result<Vec<Hls
     Ok(body)
 }
 
-fn merge_inner_body_group(zero_sentinel: bool,
+fn merge_inner_body_group(
+    zero_sentinel: bool,
     ops: &KernelOpBundle,
     pipelines: usize,
 ) -> Result<Vec<HlsStatement>, HlsTemplateError> {

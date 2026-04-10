@@ -19,9 +19,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/ddr_dataset_config.sh"
 
 FIGURE=""
-DATASET_DIR=""
+DATASET_DIR="/home/youwei/xuxiao/artifact/datasets"
 TARGET="hw"
 OUTPUT_CSV=""
 MAX_ITERS=32
@@ -67,6 +69,44 @@ for f in "$DATASET_DIR"/*.txt "$DATASET_DIR"/*.mtx; do
     [[ -f "$f" ]] && DATASETS+=("$f")
 done
 
+rebuild_fig8_host_for_dataset() {
+    local project_dir="$1"
+    local dataset="$2"
+    local dataset_file
+    local dataset_stem
+    local dataset_config
+    local dataset_alias
+    local big_edge_per_ms
+    local little_edge_per_ms
+    local rebuild_log
+
+    dataset_file="$(basename "$dataset")"
+    dataset_stem="${dataset_file%.*}"
+
+    if ! dataset_config="$(resolve_ddr_dataset_config "$dataset_file")"; then
+        echo "ERROR: no Figure 8 DDR dataset configuration for '$dataset_file'" >&2
+        return 1
+    fi
+
+    IFS=$'\t' read -r dataset_alias big_edge_per_ms little_edge_per_ms <<<"$dataset_config"
+    rebuild_log="$project_dir/rebuild_host_${dataset_stem}.log"
+
+    echo "    Rebuilding host for ${dataset_alias}: BIG_EDGE_PER_MS=${big_edge_per_ms} LITTLE_EDGE_PER_MS=${little_edge_per_ms}" >&2
+
+    (
+        cd "$project_dir"
+        {
+            echo "==> dataset=$dataset_file alias=$dataset_alias target=$TARGET"
+            echo "==> BIG_EDGE_PER_MS=$big_edge_per_ms"
+            echo "==> LITTLE_EDGE_PER_MS=$little_edge_per_ms"
+            make cleanexe TARGET="$TARGET"
+            make exe TARGET="$TARGET" \
+                BIG_EDGE_PER_MS="$big_edge_per_ms" \
+                LITTLE_EDGE_PER_MS="$little_edge_per_ms"
+        } > "$rebuild_log" 2>&1
+    )
+}
+
 # ── Run function ──────────────────────────────────────────────────────────────
 run_one() {
     local project_dir="$1"
@@ -78,13 +118,23 @@ run_one() {
 
     local xclbin="$project_dir/xclbin/graphyflow_kernels.${TARGET}.xclbin"
     if [[ ! -f "$xclbin" ]]; then
-        echo "SKIP,$project_name,$ds_name,no_xclbin"
+        echo "SKIP: $project_name on $ds_name (missing xclbin)" >&2
+        echo "SKIP,$project_name,$ds_name,,,no_xclbin"
         return
     fi
 
     local run_log="$project_dir/run_${ds_name}.log"
 
-    echo -n "  Running $project_name on $ds_name ... "
+    if [[ "$FIGURE" == "8" ]]; then
+        if ! rebuild_fig8_host_for_dataset "$project_dir" "$dataset"; then
+            echo "FAILED: $project_name on $ds_name (host rebuild failed)" >&2
+            echo "FAIL,$project_name,$ds_name,,,host_rebuild_failed"
+            return
+        fi
+    fi
+
+    echo "  [app=$project_name] dataset=$ds_name target=$TARGET" >&2
+    echo -n "    Running ... " >&2
 
     (
         cd "$project_dir"
@@ -95,8 +145,8 @@ run_one() {
     local exit_code=$?
 
     if [[ $exit_code -ne 0 ]]; then
-        echo "FAILED (exit=$exit_code)"
-        echo "FAIL,$project_name,$ds_name,$exit_code"
+        echo "FAILED (exit=$exit_code)" >&2
+        echo "FAIL,$project_name,$ds_name,,,$exit_code"
         return
     fi
 
@@ -104,13 +154,13 @@ run_one() {
     local kernel_time
     kernel_time=$(grep -oP 'Total FPGA Kernel Execution Time[^0-9]*\K[0-9.]+' "$run_log" 2>/dev/null | head -1)
     local throughput
-    throughput=$(grep -oP 'Throughput[^0-9]*\K[0-9.]+' "$run_log" 2>/dev/null | head -1)
+    throughput=$(grep -oP 'Total MTEPS \(Edges / Total Time\):\s*\K[0-9.]+' "$run_log" 2>/dev/null | tail -1)
 
     if [[ -n "$kernel_time" ]]; then
-        echo "OK (${kernel_time}ms)"
+        echo "OK (${kernel_time}ms)" >&2
         echo "OK,$project_name,$ds_name,$kernel_time,$throughput"
     else
-        echo "OK (no timing found)"
+        echo "OK (no timing found)" >&2
         echo "OK,$project_name,$ds_name,,"
     fi
 }

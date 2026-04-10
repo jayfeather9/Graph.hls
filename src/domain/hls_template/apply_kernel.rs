@@ -1,16 +1,16 @@
 use crate::domain::{
     hls::{
-        HlsBinaryOp, HlsCompilationUnit, HlsExpr, HlsField, HlsFunction, HlsIdentifier,
-        HlsInclude, HlsLiteral, HlsParameter, HlsPragma, HlsStatement, HlsStruct, HlsType,
-        HlsUnaryOp, HlsVarDecl, LoopIncrement, LoopInitializer, LoopLabel, PassingStyle,
+        HlsBinaryOp, HlsCompilationUnit, HlsExpr, HlsField, HlsFunction, HlsIdentifier, HlsInclude,
+        HlsLiteral, HlsParameter, HlsPragma, HlsStatement, HlsStruct, HlsType, HlsUnaryOp,
+        HlsVarDecl, LoopIncrement, LoopInitializer, LoopLabel, PassingStyle,
     },
     hls_ops::{KernelOpBundle, OperatorExpr, OperatorOperand, ReducerKind},
 };
 
 use super::HlsTemplateError;
 use super::utils::{
-    assignment, binary, custom, ident, literal_bool, literal_int, member_expr,
-    cast_ternary_branches, expr_uses_operand, method_call, range_method, render_operator_expr,
+    assignment, binary, cast_ternary_branches, custom, expr_uses_operand, ident, literal_bool,
+    literal_int, member_expr, method_call, range_method, render_operator_expr,
 };
 
 /// Builds the structured representation of `apply_kernel.cpp`.
@@ -202,10 +202,7 @@ fn write_out_ddr_fn() -> Result<HlsFunction, HlsTemplateError> {
 
 /// DDR apply_func: reads from write_burst_stream, applies the operator, writes
 /// to kernel_out_stream.
-fn apply_func_ddr_fn(
-    ops: &KernelOpBundle,
-    is_pr: bool,
-) -> Result<HlsFunction, HlsTemplateError> {
+fn apply_func_ddr_fn(ops: &KernelOpBundle, is_pr: bool) -> Result<HlsFunction, HlsTemplateError> {
     let apply_loop = render_ddr_apply_func_loop_raw(ops, is_pr)?;
 
     let mut params = vec![HlsParameter {
@@ -331,7 +328,10 @@ fn apply_kernel_top_ddr_fn(is_pr: bool) -> Result<HlsFunction, HlsTemplateError>
     if is_pr {
         params.push(scalar_param("arg_reg", HlsType::UInt32)?);
     }
-    params.push(stream_param("little_kernel_out_stream", "write_burst_pkt_t")?);
+    params.push(stream_param(
+        "little_kernel_out_stream",
+        "write_burst_pkt_t",
+    )?);
     params.push(stream_param("big_kernel_out_stream", "write_burst_pkt_t")?);
 
     let arg_reg_pragma = if is_pr {
@@ -708,7 +708,11 @@ fn merge_multi_merger_writes(
     })
 }
 
-fn apply_func(ops: &KernelOpBundle, needs_aux: bool, is_pr: bool) -> Result<HlsFunction, HlsTemplateError> {
+fn apply_func(
+    ops: &KernelOpBundle,
+    needs_aux: bool,
+    is_pr: bool,
+) -> Result<HlsFunction, HlsTemplateError> {
     let node_props = ident("node_props")?;
     let write_stream = ident("write_burst_stream")?;
     let kernel_stream = ident("kernel_out_stream")?;
@@ -889,7 +893,10 @@ fn relax_branch(
     Ok(stmts)
 }
 
-fn per_lane_body(ops: &KernelOpBundle, needs_aux: bool) -> Result<Vec<HlsStatement>, HlsTemplateError> {
+fn per_lane_body(
+    ops: &KernelOpBundle,
+    needs_aux: bool,
+) -> Result<Vec<HlsStatement>, HlsTemplateError> {
     if is_pagerank_apply(ops) {
         return per_lane_body_pagerank();
     }
@@ -1080,9 +1087,7 @@ fn per_lane_body_pagerank() -> Result<Vec<HlsStatement>, HlsTemplateError> {
          (ap_int<32>)(((ap_int<64>)kDampFixPoint * (ap_int<64>)sum_in) >> 7);"
             .to_string(),
     ));
-    body.push(HlsStatement::Raw(
-        "ap_int<32> new_contrib = 0;".to_string(),
-    ));
+    body.push(HlsStatement::Raw("ap_int<32> new_contrib = 0;".to_string()));
     body.push(HlsStatement::Raw(
         "if (outDeg != 0) { \
          ap_uint<32> tmp = ((ap_uint<32>)1 << 16) / outDeg; \
@@ -1496,7 +1501,11 @@ fn render_apply_expr_string(expr: &OperatorExpr) -> String {
             };
             format!("(({l}) {op_str} ({r}))")
         }
-        OperatorExpr::Ternary { condition, then_expr, else_expr } => {
+        OperatorExpr::Ternary {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
             let c = render_apply_expr_string(condition);
             let t = render_apply_expr_string(then_expr);
             let e = render_apply_expr_string(else_expr);
