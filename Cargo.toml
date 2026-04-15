@@ -12,3 +12,9 @@ rand = { version = "0.8", features = ["std", "std_rng"] }
 
 [dev-dependencies]
 rstest = "0.19"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+strip = "debuginfo"

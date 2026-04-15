@@ -43,6 +43,7 @@ echo "--- Step 1: Running batch simulation ---"
 "$SCRIPT_DIR/batch_simulate.sh" --format raw --mode batch \
     --dataset "$DATASET_DIR" \
     --dsl "sssp,pagerank,connected_components" \
+    --max-iters 1 \
     --output "$SIM_CSV"
 
 echo ""
